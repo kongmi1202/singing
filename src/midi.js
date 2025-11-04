@@ -4,11 +4,23 @@ const BUILT_IN = [
   {
     id: 'twinkle',
     title: '작은 별 (4/4, C 메이저)',
-    tempoBpm: 100,
+    tempoBpm: 120,
     timeSig: [4, 4],
     key: 'C',
     // beats-based notes: { startBeat, durationBeats, midi }
     // 10마디(40박) 간단 편곡 버전
+    lyrics: [
+      { beat: 0, text: '반' }, { beat: 1, text: '짝' }, { beat: 2, text: '반' }, { beat: 3, text: '짝' },
+      { beat: 4, text: '작' }, { beat: 5, text: '은' }, { beat: 6, text: '별' },
+      { beat: 8, text: '아' }, { beat: 9, text: '름' }, { beat: 10, text: '답' }, { beat: 11, text: '게' },
+      { beat: 12, text: '비' }, { beat: 13, text: '치' }, { beat: 14, text: '네' },
+      { beat: 16, text: '동' }, { beat: 17, text: '쪽' }, { beat: 18, text: '하' }, { beat: 19, text: '늘' },
+      { beat: 20, text: '에' }, { beat: 21, text: '서' }, { beat: 22, text: '도' },
+      { beat: 24, text: '서' }, { beat: 25, text: '쪽' }, { beat: 26, text: '하' }, { beat: 27, text: '늘' },
+      { beat: 28, text: '에' }, { beat: 29, text: '서' }, { beat: 30, text: '도' },
+      { beat: 32, text: '반' }, { beat: 33, text: '짝' }, { beat: 34, text: '반' }, { beat: 35, text: '짝' },
+      { beat: 36, text: '작' }, { beat: 37, text: '은' }, { beat: 38, text: '별' }
+    ],
     notes: [
       // 1마디: C C G G
       { startBeat: 0, durationBeats: 1, midi: 60 },

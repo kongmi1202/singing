@@ -79,7 +79,7 @@ export function initUI() {
         throw new Error(`오디오 디코딩 실패: ${e.message || e}. 브라우저가 m4a 코덱을 지원하지 않으면 wav/mp3로 변환해 주세요.`)
       }
       const pitchTrack = await analyzePitchTrack(audioBuffer)
-      const analysis = analyzeAgainstReference(reference, pitchTrack)
+      const analysis = await analyzeAgainstReference(reference, pitchTrack)
       const noteView = buildNoteComparisons(reference, pitchTrack)
       renderResults({ reference, pitchTrack, analysis, noteView, audioUrl })
       document.getElementById('results').style.display = 'block'

@@ -48,6 +48,10 @@ export async function analyzePitchTrack(audioBuffer) {
   const detector = Pitchfinder.YIN({ sampleRate, threshold: 0.1 })
   const times = []
   const f0 = []
+  const totalFrames = Math.floor((channelData.length - frameSize) / hopSize)
+  
+  // Process in chunks to avoid blocking the UI
+  const chunkSize = 50 // frames per yield
   for (let i = 0; i + frameSize < channelData.length; i += hopSize) {
     const slice = channelData.subarray(i, i + frameSize)
     let freq = detector(slice) || 0
@@ -55,6 +59,11 @@ export async function analyzePitchTrack(audioBuffer) {
     if (freq < 80 || freq > 1000) freq = 0
     times.push(i / sampleRate)
     f0.push(freq)
+    
+    // Yield to browser every chunkSize frames
+    if (times.length % chunkSize === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
   }
   return { sampleRate, frameSize, hopSize, times, f0 }
 }

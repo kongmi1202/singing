@@ -4,7 +4,7 @@ function freqToMidi(freq) {
   return 69 + 12 * Math.log2(freq / 440)
 }
 
-export function analyzeAgainstReference(reference, pitchTrack) {
+export async function analyzeAgainstReference(reference, pitchTrack) {
   const { tempoBpm } = reference
   const secondsPerBeat = 60 / tempoBpm
   const userMidiSeries = pitchTrack.times.map((t, i) => ({
@@ -55,7 +55,9 @@ export function analyzeAgainstReference(reference, pitchTrack) {
   }
   for(let i=0;i<userMidi.length;i++){
     if (userMidi[i]==null) continue
-    userMidi[i] = median(userMidi, i, 5)
+    userMidi[i] = median(userMidi, i, 9) // 윈도 더 확대 (7→9, 더 부드럽게)
+    // Yield every 100 samples to keep UI responsive
+    if (i % 100 === 0) await new Promise(r => setTimeout(r, 0))
   }
 
   // 2) 옥타브 보정: 기준과 12semitone 배수 차이는 가장 가까운 옥타브로 이동
@@ -73,30 +75,24 @@ export function analyzeAgainstReference(reference, pitchTrack) {
     userMidi[i] = best
   }
 
-  // 3) 범위 클램프 (C2~F5) 및 급격한 단발성 스파이크 제거
+  // 3) 범위 클램프 (C2~F5) 및 급격한 단발성 스파이크 제거 (임계값 완화)
   for(let i=0;i<userMidi.length;i++){
     if (userMidi[i]==null) continue
     userMidi[i] = Math.max(36, Math.min(77, userMidi[i]))
     const prev = userMidi[i-1]
     const next = userMidi[i+1]
     if (prev!=null && next!=null){
-      if (Math.abs(userMidi[i]-prev)>6 && Math.abs(userMidi[i]-next)>6){
+      if (Math.abs(userMidi[i]-prev)>8 && Math.abs(userMidi[i]-next)>8){ // 6→8 완화
         userMidi[i] = null
       }
     }
   }
 
-  // 4) 기준 유도 클램프: 기준과의 편차를 ±5반음으로 제한하여 과도한 이탈 방지
-  for (let i=0;i<userMidi.length;i++){
-    if (userMidi[i]==null || refMidi[i]==null) continue
-    const r = refMidi[i]
-    const u = userMidi[i]
-    const dev = Math.max(-5, Math.min(5, u - r))
-    userMidi[i] = r + dev
-  }
+  // 4) 기준 유도 클램프 제거 (사람 목소리는 자연스러운 편차 허용)
+  // 이전: ±5반음 클램프 → 제거
 
-  // 5) 지수 스무딩(EMA)로 잔떨림 완화
-  const alpha = 0.45
+  // 5) 지수 스무딩(EMA)로 잔떨림 완화 (알파값 더 낮춰서 매우 부드럽게)
+  const alpha = 0.2 // 0.3→0.2: 이전 값을 80% 반영, 새 값 20%만 반영
   for (let i=1;i<userMidi.length;i++){
     if (userMidi[i]==null || userMidi[i-1]==null) continue
     userMidi[i] = alpha*userMidi[i] + (1-alpha)*userMidi[i-1]
@@ -128,26 +124,42 @@ export function analyzeAgainstReference(reference, pitchTrack) {
 // Build bar data and per-note deviations for piano-roll-like visualization
 export function buildNoteComparisons(reference, pitchTrack) {
   const secondsPerBeat = 60 / reference.tempoBpm
-  // helper to sample user midi at time (seconds)
   const hopSeconds = pitchTrack.hopSize / pitchTrack.sampleRate
+  
+  // Auto-align: detect first voiced frame
+  let firstVoicedSec = 0
+  for (let i=0;i<pitchTrack.f0.length;i++){
+    if (pitchTrack.f0[i] > 60){
+      firstVoicedSec = pitchTrack.times[i]
+      break
+    }
+  }
+  const firstRefBeat = reference.notes[0]?.startBeat || 0
+  const offsetBeats = firstVoicedSec / secondsPerBeat - firstRefBeat
+  
+  // Store offset for playback
+  const result = { barsRef: [], barsUser: [], issues: [], offsetBeats }
+  
+  // helper to sample user midi at beat (now with alignment offset)
   function sampleUserAtBeat(b){
-    const idx = Math.round((b * secondsPerBeat) / hopSeconds)
+    const adjustedB = b + offsetBeats
+    const idx = Math.round((adjustedB * secondsPerBeat) / hopSeconds)
     if (idx < 0 || idx >= pitchTrack.f0.length) return null
     const f = pitchTrack.f0[idx]
     if (!f || f <= 0) return null
     return 69 + 12 * Math.log2(f / 440)
   }
 
-  const barsRef = []
-  const barsUser = []
-  const issues = []
-  const tolPitch = 0.5 // semitones
-  const tolBeats = 0.25 // beats
+  // 교육적 허용 범위: ±50 Cent (반음의 절반), ±100ms (약 0.2박@120BPM)
+  const tolCents = 50 // ±50 Cent: 사람 귀로 구분 어려운 수준
+  const tolPitch = tolCents / 100 // 0.5 semitones
+  const tolMs = 100 // ±100ms
+  const tolBeats = (tolMs / 1000) * (reference.tempoBpm / 60) // ~0.2 beats @ 120BPM
 
   for (const n of reference.notes) {
     const start = n.startBeat
     const end = n.startBeat + n.durationBeats
-    barsRef.push({ x0: start, x1: end, midi: n.midi })
+    result.barsRef.push({ x0: start, x1: end, midi: n.midi })
 
     // Estimate user's pitch during this note: median of samples in window
     const samples = []
@@ -174,18 +186,18 @@ export function buildNoteComparisons(reference, pitchTrack) {
     // Fallbacks
     if (uStart==null) uStart = start
     if (uEnd==null) uEnd = end
-    barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi })
+    result.barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi })
 
     const pitchDiff = (uMidi==null) ? null : (uMidi - n.midi)
     const startDiff = uStart - start
     const endDiff = uEnd - end
     const isIssue = (pitchDiff!=null && Math.abs(pitchDiff) > tolPitch) || Math.abs(startDiff) > tolBeats || Math.abs(endDiff) > tolBeats
     if (isIssue){
-      issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
+      result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
     }
   }
 
-  return { barsRef, barsUser, issues }
+  return result
 }
 
 function detectUserOnsets(series) {
