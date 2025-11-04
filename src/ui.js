@@ -1,6 +1,6 @@
 import { getBuiltInSongs, loadReference } from './midi.js'
 import { decodeAudioFile, analyzePitchTrack } from './audio.js'
-import { analyzeAgainstReference } from './analysis.js'
+import { analyzeAgainstReference, buildNoteComparisons } from './analysis.js'
 import { renderResults } from './viz.js'
 
 let selectedSongId = null
@@ -80,7 +80,8 @@ export function initUI() {
       }
       const pitchTrack = await analyzePitchTrack(audioBuffer)
       const analysis = analyzeAgainstReference(reference, pitchTrack)
-      renderResults({ reference, pitchTrack, analysis, audioUrl })
+      const noteView = buildNoteComparisons(reference, pitchTrack)
+      renderResults({ reference, pitchTrack, analysis, noteView, audioUrl })
       document.getElementById('results').style.display = 'block'
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
     } catch (err) {

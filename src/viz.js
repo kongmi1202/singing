@@ -4,7 +4,7 @@ import * as Tone from 'tone'
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController)
 
-export function renderResults({ reference, pitchTrack, analysis, audioUrl }) {
+export function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl }) {
   const results = document.getElementById('results')
   results.innerHTML = `
     <div class="results-grid">
@@ -52,53 +52,68 @@ export function renderResults({ reference, pitchTrack, analysis, audioUrl }) {
 
   function buildSlice(){
     const labels = []
-    const refData = []
-    const userData = []
-    const crossData = []
+    const barsRef = []
+    const barsUser = []
+    const crosses = []
     const crossIndexMap = []
-    for (let i=0;i<analysis.beats.length;i++){
-      const b = analysis.beats[i]
-      if (b < windowStart || b > windowStart + windowBeats) continue
-      labels.push(b)
-      refData.push(analysis.refMidi[i] == null ? NaN : analysis.refMidi[i])
-      userData.push(analysis.userMidi[i] == null ? NaN : analysis.userMidi[i])
-      if (analysis.incorrectMask[i] && analysis.refMidi[i] != null && analysis.userMidi[i] != null){
-        crossIndexMap.push(i)
-        crossData.push({ x: labels.length-1, y: analysis.refMidi[i] })
-      }
+    for (let b=windowStart; b<=windowStart+windowBeats; b+=0.25){ labels.push(b) }
+    function pushBar(arr, bar){
+      if (bar.x1 < windowStart || bar.x0 > windowStart+windowBeats) return
+      const x0 = Math.max(windowStart, bar.x0)
+      const x1 = Math.min(windowStart+windowBeats, bar.x1)
+      if (x1 <= x0) return
+      arr.push({ x: [x0, x1], y: bar.midi })
     }
-    return { labels, refData, userData, crossData, crossIndexMap }
+    noteView?.barsRef?.forEach(b=>pushBar(barsRef,b))
+    noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushBar(barsUser,b) })
+    noteView?.issues?.forEach((iss, idx)=>{
+      if (iss.beat>=windowStart && iss.beat<=windowStart+windowBeats){
+        crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
+        crossIndexMap.push(idx)
+      }
+    })
+    return { labels, barsRef, barsUser, crosses, crossIndexMap }
   }
 
   function render(){
-    const { labels, refData, userData, crossData, crossIndexMap } = buildSlice()
+    const { labels, barsRef, barsUser, crosses, crossIndexMap } = buildSlice()
     document.getElementById('pageInfo').textContent = pageInfoText()
     if (chart) chart.destroy()
     chart = new Chart(ctx, {
-      type: 'line',
+      type: 'bar',
       data: { labels, datasets: [
-        { label:'정답', data: refData, spanGaps:true, borderColor:'#4caf50', pointRadius:0, borderWidth:2 },
-        { label:'사용자', data: userData, spanGaps:true, borderColor:'#2196f3', pointRadius:0, borderWidth:2 },
-        { label:'오차', data: crossData, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:6, hitRadius:8, hoverRadius:7, showLine:false, borderWidth:0 }
+        { label:'정답', data: barsRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.35)', borderWidth:2, indexAxis:'y' },
+        { label:'사용자', data: barsUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.35)', borderWidth:2, indexAxis:'y' },
+        { label:'오차', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:6, hitRadius:8, hoverRadius:7, showLine:false, borderWidth:0 }
       ]},
       options: {
         animation:false, maintainAspectRatio:false,
         scales: {
-          x: { title:{display:true,text:'마디-박 (4/4)'}, ticks:{
+          x: { type:'linear', title:{display:true,text:'박 (4/4)'}, ticks:{
               callback:(value, index)=>{
                 const b = labels[index]
-                if (Math.abs(b - Math.round(b)) > 1e-6) return ''
+                if (b==null) return ''
                 const measure = Math.floor(b/4)+1
                 const beatIn = Math.floor(b%4)+1
                 return `${measure}|${beatIn}`
               }, maxRotation:0, autoSkip:true },
               grid:{ color:(c)=>{ const b=labels[c.index]||0; return (Math.abs(b%4)<1e-6)?'#cfd8dc':'#e9eef1' }, lineWidth:(c)=>{ const b=labels[c.index]||0; return (Math.abs(b%4)<1e-6)?1.5:0.6 } }
           },
-          y: { ticks:{ callback:(v)=>{ const t=yTicks.find(t=>t.value===v); return t? t.label : '' }, stepSize:1 }, title:{display:true,text:'음'} }
+          y: { type:'linear', min: Math.min(...yTicks.map(t=>t.value)) - 1, max: Math.max(...yTicks.map(t=>t.value)) + 1,
+               ticks:{ callback:(v)=>{ const t=yTicks.find(t=>t.value===v); return t? t.label : '' }, stepSize:1 }, title:{display:true,text:'음고'} }
         },
-        plugins: { tooltip:{ enabled:true, mode:'index', intersect:false, callbacks:{
-          title:(items)=>{ const b=labels[items[0].dataIndex]; const m=Math.floor(b/4)+1; const bi=Math.floor(b%4)+1; return `마디 ${m}, 박 ${bi} (b=${b.toFixed(2)})` },
-          label:(ctx)=> `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(2)} MIDI`
+        plugins: { tooltip:{ enabled:true, mode:'nearest', intersect:true, callbacks:{
+          title:(items)=>{ const x = (Array.isArray(items[0].raw?.x)? items[0].raw.x[0]: items[0].parsed.x); const m=Math.floor(x/4)+1; const bi=Math.floor(x%4)+1; return `마디 ${m}, 박 ${bi}` },
+          label:(ctx)=>{
+            if (ctx.dataset.label==='사용자'){
+              const x0 = Array.isArray(ctx.raw.x) ? ctx.raw.x[0] : ctx.parsed.x
+              const note = reference.notes.find(n => x0>=n.startBeat-0.5 && x0<n.startBeat+n.durationBeats+0.5)
+              let pitchDiff = null, startDiff = null
+              if (note){ pitchDiff = (ctx.raw.y - note.midi).toFixed(2); startDiff = (x0 - note.startBeat).toFixed(2) }
+              return `사용자: MIDI ${Number(ctx.raw.y).toFixed(2)} (피치Δ ${pitchDiff ?? '-'}, 시작Δ ${startDiff ?? '-'} 박)`
+            }
+            return `${ctx.dataset.label}`
+          }
         } }, legend:{ position:'top' } },
         onHover: (_, elements) => {
           if (!elements || !elements.length) return
@@ -108,7 +123,9 @@ export function renderResults({ reference, pitchTrack, analysis, audioUrl }) {
           const scatterPointIdx = el.index
           const aIdx = crossIndexMap[scatterPointIdx]
           if (aIdx == null) return
-          playAB(reference, audioUrl, analysis.beats[aIdx])
+          const issue = noteView.issues[aIdx]
+          const beat = issue?.beat ?? labels[el.index]
+          playAB(reference, audioUrl, beat)
         }
       }
     })

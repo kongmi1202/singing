@@ -125,6 +125,69 @@ export function analyzeAgainstReference(reference, pitchTrack) {
   return { beats, refMidi, userMidi, incorrectMask, pitchScore, rhythmScore, totalScore, verdict }
 }
 
+// Build bar data and per-note deviations for piano-roll-like visualization
+export function buildNoteComparisons(reference, pitchTrack) {
+  const secondsPerBeat = 60 / reference.tempoBpm
+  // helper to sample user midi at time (seconds)
+  const hopSeconds = pitchTrack.hopSize / pitchTrack.sampleRate
+  function sampleUserAtBeat(b){
+    const idx = Math.round((b * secondsPerBeat) / hopSeconds)
+    if (idx < 0 || idx >= pitchTrack.f0.length) return null
+    const f = pitchTrack.f0[idx]
+    if (!f || f <= 0) return null
+    return 69 + 12 * Math.log2(f / 440)
+  }
+
+  const barsRef = []
+  const barsUser = []
+  const issues = []
+  const tolPitch = 0.5 // semitones
+  const tolBeats = 0.25 // beats
+
+  for (const n of reference.notes) {
+    const start = n.startBeat
+    const end = n.startBeat + n.durationBeats
+    barsRef.push({ x0: start, x1: end, midi: n.midi })
+
+    // Estimate user's pitch during this note: median of samples in window
+    const samples = []
+    const step = 0.05
+    for (let b=start; b<end; b+=step){
+      const u = sampleUserAtBeat(b)
+      if (u!=null) samples.push(u)
+    }
+    let uMidi = null
+    if (samples.length) {
+      samples.sort((a,b)=>a-b)
+      uMidi = samples[Math.floor(samples.length/2)]
+    }
+    // Estimate timing: first/last beat where voiced near the window
+    let uStart = null, uEnd = null
+    for (let b=start-0.5; b<end+0.5; b+=step){
+      const u = sampleUserAtBeat(b)
+      if (u!=null){ uStart = b; break; }
+    }
+    for (let b=end+0.5; b>start-0.5; b-=step){
+      const u = sampleUserAtBeat(b)
+      if (u!=null){ uEnd = b; break; }
+    }
+    // Fallbacks
+    if (uStart==null) uStart = start
+    if (uEnd==null) uEnd = end
+    barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi })
+
+    const pitchDiff = (uMidi==null) ? null : (uMidi - n.midi)
+    const startDiff = uStart - start
+    const endDiff = uEnd - end
+    const isIssue = (pitchDiff!=null && Math.abs(pitchDiff) > tolPitch) || Math.abs(startDiff) > tolBeats || Math.abs(endDiff) > tolBeats
+    if (isIssue){
+      issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
+    }
+  }
+
+  return { barsRef, barsUser, issues }
+}
+
 function detectUserOnsets(series) {
   const threshold = 0.8
   const win = 4
