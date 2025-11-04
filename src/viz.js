@@ -1,8 +1,8 @@
-import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController } from 'chart.js'
+import { Chart, LineController, LineElement, PointElement, BarController, BarElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController } from 'chart.js'
 import { buildYAxisTicksFromReference } from './midi.js'
 import * as Tone from 'tone'
 
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController)
+Chart.register(LineController, LineElement, PointElement, BarController, BarElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController)
 
 export function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl }) {
   const results = document.getElementById('results')
@@ -51,53 +51,50 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
   }
 
   function buildSlice(){
-    const labels = []
-    const barsRef = []
-    const barsUser = []
+    const linesRef = []
+    const linesUser = []
     const crosses = []
     const crossIndexMap = []
-    for (let b=windowStart; b<=windowStart+windowBeats; b+=0.25){ labels.push(b) }
-    function pushBar(arr, bar){
+    function pushLine(arr, bar){
       if (bar.x1 < windowStart || bar.x0 > windowStart+windowBeats) return
       const x0 = Math.max(windowStart, bar.x0)
       const x1 = Math.min(windowStart+windowBeats, bar.x1)
       if (x1 <= x0) return
-      arr.push({ x: [x0, x1], y: bar.midi })
+      arr.push({ x: x0, y: bar.midi }, { x: x1, y: bar.midi }, { x: null, y: null })
     }
-    noteView?.barsRef?.forEach(b=>pushBar(barsRef,b))
-    noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushBar(barsUser,b) })
+    noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
+    noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushLine(linesUser,b) })
     noteView?.issues?.forEach((iss, idx)=>{
       if (iss.beat>=windowStart && iss.beat<=windowStart+windowBeats){
         crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
         crossIndexMap.push(idx)
       }
     })
-    return { labels, barsRef, barsUser, crosses, crossIndexMap }
+    return { linesRef, linesUser, crosses, crossIndexMap }
   }
 
   function render(){
-    const { labels, barsRef, barsUser, crosses, crossIndexMap } = buildSlice()
+    const { linesRef, linesUser, crosses, crossIndexMap } = buildSlice()
     document.getElementById('pageInfo').textContent = pageInfoText()
     if (chart) chart.destroy()
     chart = new Chart(ctx, {
-      type: 'bar',
-      data: { labels, datasets: [
-        { label:'정답', data: barsRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.35)', borderWidth:2, indexAxis:'y' },
-        { label:'사용자', data: barsUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.35)', borderWidth:2, indexAxis:'y' },
+      type: 'line',
+      data: { datasets: [
+        { label:'정답', data: linesRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
+        { label:'사용자', data: linesUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
         { label:'오차', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:6, hitRadius:8, hoverRadius:7, showLine:false, borderWidth:0 }
       ]},
       options: {
         animation:false, maintainAspectRatio:false,
         scales: {
-          x: { type:'linear', title:{display:true,text:'박 (4/4)'}, ticks:{
-              callback:(value, index)=>{
-                const b = labels[index]
-                if (b==null) return ''
-                const measure = Math.floor(b/4)+1
-                const beatIn = Math.floor(b%4)+1
+          x: { type:'linear', min:windowStart, max:windowStart+windowBeats, title:{display:true,text:'박 (4/4)'}, ticks:{
+              callback:(value)=>{
+                if (Math.abs(value - Math.round(value)) > 1e-6) return ''
+                const measure = Math.floor(value/4)+1
+                const beatIn = Math.floor(value%4)+1
                 return `${measure}|${beatIn}`
               }, maxRotation:0, autoSkip:true },
-              grid:{ color:(c)=>{ const b=labels[c.index]||0; return (Math.abs(b%4)<1e-6)?'#cfd8dc':'#e9eef1' }, lineWidth:(c)=>{ const b=labels[c.index]||0; return (Math.abs(b%4)<1e-6)?1.5:0.6 } }
+              grid:{ color:(c)=>{ const v=c.tick.value||0; return (Math.abs(v%4)<1e-6)?'#cfd8dc':'#e9eef1' }, lineWidth:(c)=>{ const v=c.tick.value||0; return (Math.abs(v%4)<1e-6)?1.5:0.6 } }
           },
           y: { type:'linear', min: Math.min(...yTicks.map(t=>t.value)) - 1, max: Math.max(...yTicks.map(t=>t.value)) + 1,
                ticks:{ callback:(v)=>{ const t=yTicks.find(t=>t.value===v); return t? t.label : '' }, stepSize:1 }, title:{display:true,text:'음고'} }
