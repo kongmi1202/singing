@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 가창 분석 코치</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="preconnect" href="https://unpkg.com" />
+    <!-- Chart.js for visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- jsPDF for PDF export -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Page 1: Start -->
+      <section id="page-start" class="page active">
+        <h1>AI 가창 분석 코치</h1>
+        <div class="card">
+          <label>
+            이름
+            <input type="text" id="input-name" placeholder="홍길동" />
+          </label>
+          <label>
+            학번 (필수)
+            <input type="text" id="input-student-id" placeholder="20250001" required />
+          </label>
+          <button id="btn-start" class="primary">시작하기</button>
+        </div>
+      </section>
+
+      <!-- Page 2: Upload/Settings -->
+      <section id="page-upload" class="page">
+        <header class="topbar">
+          <button class="ghost" id="btn-back-1">← 뒤로</button>
+          <div class="spacer"></div>
+          <button id="btn-darkmode" class="ghost">🌓</button>
+        </header>
+        <h2>업로드 / 설정</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>기준 MIDI</h3>
+            <select id="select-midi">
+              <option value="/assets/midi/twinkle.mid">Twinkle Twinkle</option>
+            </select>
+            <div class="row">
+              <button id="btn-demo" class="secondary">데모 모드</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>오디오 업로드</h3>
+            <input id="input-audio" type="file" accept="audio/*" />
+            <audio id="audio-player" controls class="fullwidth" preload="metadata"></audio>
+          </div>
+          <div class="card">
+            <h3>Auto-align</h3>
+            <label class="row">
+              <input type="checkbox" id="chk-auto-align" checked /> Auto-align ON
+            </label>
+            <div class="row">
+              <button class="ghost" data-offset="-0.1">-100ms</button>
+              <button class="ghost" data-offset="-0.01">-10ms</button>
+              <div id="offset-display">Offset: +0.00s</div>
+              <button class="ghost" data-offset="0.01">+10ms</button>
+              <button class="ghost" data-offset="0.1">+100ms</button>
+            </div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-analyze" class="primary">분석하기</button>
+        </div>
+
+        <div id="loading" class="loading hidden">
+          <div class="spinner"></div>
+          <div>분석 중...</div>
+        </div>
+      </section>
+
+      <!-- Page 3: Results -->
+      <section id="page-results" class="page">
+        <header class="topbar">
+          <button class="ghost" id="btn-back-2">← 뒤로</button>
+          <div class="spacer"></div>
+          <button id="btn-darkmode-2" class="ghost">🌓</button>
+        </header>
+        <h2>분석 결과</h2>
+        <div class="grid">
+          <div class="card stretch">
+            <canvas id="chart" height="380"></canvas>
+            <div id="lyrics" class="lyrics"></div>
+          </div>
+          <div class="card">
+            <h3>요약</h3>
+            <div class="metrics">
+              <div><span>음고 정확도</span><strong id="m-acc">-</strong></div>
+              <div><span>리듬 오차</span><strong id="m-rhythm">-</strong></div>
+              <div><span>틀린 음 개수</span><strong id="m-wrongs">-</strong></div>
+              <div><span>Detected Offset</span><strong id="m-offset">+0.00s</strong></div>
+            </div>
+            <div class="row">
+              <audio id="audio-player-2" controls class="fullwidth"></audio>
+            </div>
+            <div class="row">
+              <button id="btn-export-png" class="secondary">PNG</button>
+              <button id="btn-export-json" class="secondary">JSON</button>
+              <button id="btn-export-pdf" class="secondary">PDF</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>맞춤형 코칭</h3>
+            <ul id="coaching-list" class="coaching"></ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="/script.js"></script>
+  </body>
+  </html>
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>singing</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

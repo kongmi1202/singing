@@ -1,0 +1,39 @@
+:root{--bg:#0b0e14;--fg:#e6e6e6;--muted:#a8b0c0;--card:#121826;--border:#1e2638;--primary:#3a86ff;--secondary:#ffa500;--danger:#ff4d4f;--ok:#2ecc71}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:var(--bg);color:var(--fg)}
+#app{max-width:1100px;margin:0 auto;padding:24px}
+.topbar{display:flex;align-items:center;gap:12px}
+.spacer{flex:1}
+.page{display:none}
+.page.active{display:block}
+h1,h2,h3{margin:8px 0 16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+.stretch{height:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+label{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+input,select,button{border-radius:8px;border:1px solid var(--border);background:#0e1422;color:var(--fg);padding:10px 12px}
+input[type="checkbox"]{width:auto}
+button{cursor:pointer}
+button.primary{background:var(--primary);border-color:transparent}
+button.secondary{background:#1e2638}
+button.ghost{background:transparent}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.actions{margin-top:12px;display:flex;justify-content:flex-end}
+.fullwidth{width:100%}
+.loading{display:flex;gap:12px;align-items:center;margin-top:12px}
+.hidden{display:none}
+.spinner{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted);border-top-color:var(--primary);animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.metrics div{display:flex;justify-content:space-between;padding:8px;border:1px dashed var(--border);border-radius:8px}
+.lyrics{margin-top:8px;color:var(--muted);min-height:24px}
+.coaching{margin:0;padding-left:18px}
+canvas{background:#0a0f1b;border-radius:8px}
+@media (prefers-color-scheme: light){
+  :root{--bg:#f7f8fc;--fg:#111;--muted:#5c6773;--card:#fff;--border:#e5e7ef}
+  input,select,button{background:#fff;color:#111}
+  canvas{background:#fff}
+}
+
+
