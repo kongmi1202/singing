@@ -24,7 +24,7 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
   const userMidi = []
   const incorrectMask = []
 
-  const pitchToleranceSemis = 0.5 // within ±50 cents OK
+  const pitchToleranceSemis = 0.75 // within ±75 cents OK (교육적 허용 범위 확장)
   for (let b = 0; b <= maxBeat; b += beatStep) {
     beats.push(b)
     const refPoint = refByBeat.find(p => Math.abs(p.beat - b) < beatStep / 2)
@@ -41,7 +41,45 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
     incorrectMask.push(wrong)
   }
 
-  // 1) 이동평균/중앙값 스무딩으로 급격한 튐 보정
+  // 1) 🎯 음표별 안정 구간 기반 스무딩: 불안정한 어택/릴리즈 강력 제거
+  // 각 음표의 중앙 60% 구간에서 중앙값을 추출하여 전체 음표에 적용
+  for (const note of reference.notes) {
+    const noteStartIdx = Math.round((note.startBeat * secondsPerBeat) / (pitchTrack.hopSize / pitchTrack.sampleRate))
+    const noteEndIdx = Math.round(((note.startBeat + note.durationBeats) * secondsPerBeat) / (pitchTrack.hopSize / pitchTrack.sampleRate))
+    
+    if (noteStartIdx < 0 || noteEndIdx >= userMidi.length) continue
+    
+    // 🧠 중앙 60% 구간 계산 (시작/끝 각 20% 제거)
+    const noteDuration = noteEndIdx - noteStartIdx
+    const margin = Math.floor(noteDuration * 0.2)
+    const stableStart = noteStartIdx + margin
+    const stableEnd = noteEndIdx - margin
+    
+    if (stableStart >= stableEnd) continue
+    
+    // 안정 구간의 유효한 F0 값들만 수집
+    const stableSamples = []
+    for (let i = stableStart; i < stableEnd; i++) {
+      if (userMidi[i] != null && isFinite(userMidi[i])) {
+        stableSamples.push(userMidi[i])
+      }
+    }
+    
+    // 🧠 안정 구간의 중앙값(Median)으로 전체 음표 구간을 대표
+    // 평균 대신 중앙값 사용으로 이상치(outlier) 영향 최소화
+    if (stableSamples.length > 0) {
+      stableSamples.sort((a, b) => a - b)
+      const stableMedian = stableSamples[Math.floor(stableSamples.length / 2)]
+      // 음표 전체 구간에 안정값 적용 (단, 원래 null이 아닌 위치만)
+      for (let i = noteStartIdx; i < noteEndIdx; i++) {
+        if (userMidi[i] != null) {
+          userMidi[i] = stableMedian
+        }
+      }
+    }
+  }
+  
+  // 2) 추가 중앙값 필터로 남은 노이즈 제거
   function median(arr, i, w){
     const half = Math.floor(w/2)
     const vals = []
@@ -55,12 +93,12 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
   }
   for(let i=0;i<userMidi.length;i++){
     if (userMidi[i]==null) continue
-    userMidi[i] = median(userMidi, i, 9) // 윈도 더 확대 (7→9, 더 부드럽게)
+    userMidi[i] = median(userMidi, i, 5) // 윈도 축소 (9→5, 이미 안정화되어 있으므로)
     // Yield every 100 samples to keep UI responsive
     if (i % 100 === 0) await new Promise(r => setTimeout(r, 0))
   }
 
-  // 2) 옥타브 보정: 기준과 12semitone 배수 차이는 가장 가까운 옥타브로 이동
+  // 3) 옥타브 보정: 기준과 12semitone 배수 차이는 가장 가까운 옥타브로 이동
   for(let i=0;i<userMidi.length;i++){
     if (userMidi[i]==null || refMidi[i]==null) continue
     const u = userMidi[i]
@@ -75,7 +113,7 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
     userMidi[i] = best
   }
 
-  // 3) 범위 클램프 (C2~F5) 및 급격한 단발성 스파이크 제거 (임계값 완화)
+  // 4) 범위 클램프 (C2~F5) 및 급격한 단발성 스파이크 제거 (임계값 완화)
   for(let i=0;i<userMidi.length;i++){
     if (userMidi[i]==null) continue
     userMidi[i] = Math.max(36, Math.min(77, userMidi[i]))
@@ -88,11 +126,11 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
     }
   }
 
-  // 4) 기준 유도 클램프 제거 (사람 목소리는 자연스러운 편차 허용)
+  // 5) 기준 유도 클램프 제거 (사람 목소리는 자연스러운 편차 허용)
   // 이전: ±5반음 클램프 → 제거
 
-  // 5) 지수 스무딩(EMA)로 잔떨림 완화 (알파값 더 낮춰서 매우 부드럽게)
-  const alpha = 0.2 // 0.3→0.2: 이전 값을 80% 반영, 새 값 20%만 반영
+  // 6) 지수 스무딩(EMA)로 잔떨림 완화 (안정화 후 가벼운 스무딩만)
+  const alpha = 0.3 // 이미 안정화되어 있으므로 좀 더 높은 값 사용
   for (let i=1;i<userMidi.length;i++){
     if (userMidi[i]==null || userMidi[i-1]==null) continue
     userMidi[i] = alpha*userMidi[i] + (1-alpha)*userMidi[i-1]
@@ -150,28 +188,35 @@ export function buildNoteComparisons(reference, pitchTrack) {
     return 69 + 12 * Math.log2(f / 440)
   }
 
-  // 교육적 허용 범위: ±50 Cent (반음의 절반), ±100ms (약 0.2박@120BPM)
-  const tolCents = 50 // ±50 Cent: 사람 귀로 구분 어려운 수준
-  const tolPitch = tolCents / 100 // 0.5 semitones
-  const tolMs = 100 // ±100ms
-  const tolBeats = (tolMs / 1000) * (reference.tempoBpm / 60) // ~0.2 beats @ 120BPM
+  // 🎯 교육적 허용 범위 확장: 자연스러운 표현을 허용하면서 심각한 오류만 감지
+  const tolCents = 75 // ±75 Cent: 반음(100 Cent)의 3/4, 비브라토 등 자연스러운 떨림 허용
+  const tolPitch = tolCents / 100 // 0.75 semitones
+  const tolMs = 150 // ±150ms: 감정 표현과 호흡으로 인한 자연스러운 박자 밀림 허용
+  const tolBeats = (tolMs / 1000) * (reference.tempoBpm / 60) // ~0.3 beats @ 120BPM
 
   for (const n of reference.notes) {
     const start = n.startBeat
     const end = n.startBeat + n.durationBeats
     result.barsRef.push({ x0: start, x1: end, midi: n.midi })
 
-    // Estimate user's pitch during this note: median of samples in window
+    // 🎯 중앙 60% 구간만 사용하여 불안정한 어택/릴리즈 구간 강력 제거
+    const duration = end - start
+    const margin = duration * 0.2 // 시작/끝 각 20% 제거 → 중앙 60%만 사용
+    const stableStart = start + margin
+    const stableEnd = end - margin
+
+    // Estimate user's pitch during STABLE portion of note only
     const samples = []
     const step = 0.05
-    for (let b=start; b<end; b+=step){
+    for (let b=stableStart; b<stableEnd; b+=step){
       const u = sampleUserAtBeat(b)
       if (u!=null) samples.push(u)
     }
     let uMidi = null
     if (samples.length) {
       samples.sort((a,b)=>a-b)
-      uMidi = samples[Math.floor(samples.length/2)]
+      // 🧠 중앙값(Median) 사용: 순간적 스파이크나 노이즈의 영향 최소화
+      uMidi = samples[Math.floor(samples.length / 2)]
     }
     // Estimate timing: first/last beat where voiced near the window
     let uStart = null, uEnd = null
@@ -191,9 +236,21 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const pitchDiff = (uMidi==null) ? null : (uMidi - n.midi)
     const startDiff = uStart - start
     const endDiff = uEnd - end
-    const isIssue = (pitchDiff!=null && Math.abs(pitchDiff) > tolPitch) || Math.abs(startDiff) > tolBeats || Math.abs(endDiff) > tolBeats
-    if (isIssue){
+    
+    // 🎯 X표시 기준 최종 강화: 음고 오류만 표시, 리듬 오류는 완전 제거
+    // 음표의 중앙 60% 구간에서 추출된 F0 중앙값이 ±75 Cent 범위를 벗어났을 때만 X표시
+    const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
+    
+    if (isPitchError) {
+      // ⏱️ 리듬 정보는 저장하되, X표시 판단에는 사용하지 않음
       result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
+    }
+    
+    // 🎨 시각화 교육적 보정: X표시가 없으면(정답이면) 막대를 정답과 일치시킴
+    // 이렇게 하면 "정답 = 막대 일치"로 시각적 혼란 제거
+    if (!isPitchError && uMidi != null) {
+      // ±75 Cent 이내 = 정답 → 사용자 막대를 정답 위치로 강제 일치
+      result.barsUser[result.barsUser.length - 1].midi = n.midi
     }
   }
 

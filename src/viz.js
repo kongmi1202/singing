@@ -22,7 +22,6 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         <div class="chart-wrap" style="position:relative;">
           <canvas id="pitchChart"></canvas>
           <div id="playbackPointer" style="position:absolute;top:0;bottom:0;width:2px;background:#ff4d4f;opacity:0;transition:opacity 0.2s;pointer-events:none;z-index:10;"></div>
-          <div id="lyricsRow" style="position:absolute;bottom:4px;left:0;right:0;padding:6px 8px;background:rgba(0,0,0,0.6);border-radius:4px;min-height:20px;font-size:13px;color:#e0e0e0;z-index:5;"></div>
         </div>
       </div>
       <div class="side">
@@ -73,39 +72,33 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
     noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushLine(linesUser,b) })
     
-    console.log('[DEBUG] noteView.issues:', noteView?.issues?.length || 0, noteView?.issues)
-    
-    // Force at least one test X if no issues (for debugging)
-    if (!noteView?.issues || noteView.issues.length === 0) {
-      crosses.push({ x: windowStart + 2, y: 60, meta: { pitchDiff: -3, startDiff: 0 } })
-      crossIndexMap.push(0)
-      errorLabels.push({ x: windowStart + 2, y: 61, text: '테스트 오차' })
-    } else {
-      noteView.issues.forEach((iss, idx)=>{
-        if (iss.beat>=windowStart && iss.beat<=windowStart+windowBeats){
-          crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
-          crossIndexMap.push(idx)
-          // Build error label text (툴팁용, 허용범위 초과만)
-          const parts = []
-          if (iss.pitchDiff != null){
-            const cents = Math.abs(iss.pitchDiff) * 100
-            if (cents > 50) parts.push(iss.pitchDiff > 0 ? `${cents.toFixed(0)}센트↑` : `${cents.toFixed(0)}센트↓`)
+    // 🎯 음고 오류만 X표시 (리듬 오류는 제외)
+    noteView.issues.forEach((iss, idx)=>{
+      if (iss.beat>=windowStart && iss.beat<=windowStart+windowBeats){
+        crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
+        crossIndexMap.push(idx)
+        
+        // 🎯 음고 오류 레이블 표시 (±75 Cent 초과만 X표시되므로)
+        const parts = []
+        if (iss.pitchDiff != null){
+          const cents = Math.abs(iss.pitchDiff) * 100
+          if (cents > 75) { // 75 Cent 이상만 심각한 오류
+            parts.push(iss.pitchDiff > 0 ? `${cents.toFixed(0)}센트 높음` : `${cents.toFixed(0)}센트 낮음`)
           }
-          const tempo = reference.tempoBpm || 120
-          const startMs = iss.startDiff != null ? Math.abs(iss.startDiff) * (60000 / tempo) : 0
-          const endMs = iss.endDiff != null ? Math.abs(iss.endDiff) * (60000 / tempo) : 0
-          if (startMs > 100){
-            parts.push(iss.startDiff > 0 ? `${startMs.toFixed(0)}ms 늦음` : `${startMs.toFixed(0)}ms 빠름`)
-          }
-          if (endMs > 100){
-            parts.push(`끝${endMs.toFixed(0)}ms ${iss.endDiff>0?'늦음':'빠름'}`)
-          }
-          if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(', ') })
         }
-      })
-    }
+        
+        // 리듬 정보는 참고용으로만 표시 (X표시 기준은 아님)
+        const tempo = reference.tempoBpm || 120
+        const startMs = iss.startDiff != null ? Math.abs(iss.startDiff) * (60000 / tempo) : 0
+        if (startMs > 150){
+          parts.push(`(참고: ${iss.startDiff > 0 ? '늦게' : '빠르게'} 시작)`)
+        }
+        
+        if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' ') })
+      }
+    })
     
-    console.log('[DEBUG] crosses in window:', crosses.length, crosses)
+    console.log('[X표시] 음고 오류 개수:', crosses.length)
     return { linesRef, linesUser, crosses, errorLabels, crossIndexMap }
   }
 
@@ -113,14 +106,8 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
     const { linesRef, linesUser, crosses, errorLabels, crossIndexMap } = buildSlice()
     document.getElementById('pageInfo').textContent = pageInfoText()
     
-    // Render lyrics for current window
+    // 🎵 가사를 현재 윈도우에서 필터링
     const lyricsInWindow = (reference.lyrics || []).filter(l => l.beat >= windowStart && l.beat < windowStart + windowBeats)
-    const lyricsHTML = lyricsInWindow.map(l => {
-      const m = Math.floor(l.beat / 4) + 1
-      const b = Math.floor(l.beat % 4) + 1
-      return `<span style="margin-right:16px;opacity:0.8;">${m}|${b}: ${l.text}</span>`
-    }).join('')
-    document.getElementById('lyricsRow').innerHTML = lyricsHTML || '<span style="opacity:0.5;">가사 없음</span>'
     
     if (chart) chart.destroy()
     
@@ -131,8 +118,42 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         { label:'사용자', data: linesUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
         { label:'오차', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
       ]},
+      plugins: [{
+        id: 'lyricsPlugin',
+        afterDatasetsDraw: (chart) => {
+          const ctx = chart.ctx
+          const xScale = chart.scales.x
+          const yScale = chart.scales.y
+          
+          // 🎵 각 가사를 해당 음표 막대 바로 아래에 그리기
+          lyricsInWindow.forEach(lyric => {
+            const xPixel = xScale.getPixelForValue(lyric.beat)
+            const yBottom = yScale.bottom + 8 // 그래프 하단에서 약간 아래
+            
+            ctx.save()
+            ctx.font = 'bold 13px sans-serif'
+            ctx.fillStyle = '#333'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'top'
+            
+            // 🎯 가사 텍스트를 음표 시작 위치(X좌표)에 정확히 동기화
+            ctx.fillText(lyric.text, xPixel, yBottom)
+            
+            // 연결선 (막대에서 가사로)
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)'
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(xPixel, yScale.bottom)
+            ctx.lineTo(xPixel, yBottom - 2)
+            ctx.stroke()
+            
+            ctx.restore()
+          })
+        }
+      }],
       options: {
         animation:false, maintainAspectRatio:false,
+        layout: { padding: { bottom: 30 } }, // 🎵 가사 공간 확보
         scales: {
           x: { type:'linear', min:windowStart, max:windowStart+windowBeats, title:{display:true,text:'박 (4/4)'}, ticks:{
               stepSize: 1,
@@ -163,16 +184,17 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
               if (!note) return `사용자: ${midiToNaturalName(Math.round(y0))}`
               const pitchDiff = y0 - note.midi
               const cents = pitchDiff * 100
-              const pitchDesc = cents > 50 ? `${Math.abs(cents).toFixed(0)}센트 높음` : cents < -50 ? `${Math.abs(cents).toFixed(0)}센트 낮음` : '양호'
-              const userIssue = noteView?.issues?.find(iss => Math.abs(iss.beat - note.startBeat)<0.1)
-              const startDesc = userIssue?.startDiff ? (userIssue.startDiff>0 ? `${(userIssue.startDiff).toFixed(2)}박 늦음` : `${Math.abs(userIssue.startDiff).toFixed(2)}박 빠름`) : '리듬 OK'
-              return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc} | ${startDesc}`
+              // 🎯 음고 평가 기준: ±75 Cent 이내면 양호, 초과하면 오류
+              const pitchDesc = cents > 75 ? `${Math.abs(cents).toFixed(0)}센트 높음 ⚠️` 
+                              : cents < -75 ? `${Math.abs(cents).toFixed(0)}센트 낮음 ⚠️` 
+                              : '음정 양호 ✓'
+              return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc}`
             }
             if (ctx.dataset.label==='오차') {
               const pt = crosses[ctx.dataIndex]
-              if (!pt?.meta) return '오차'
+              if (!pt?.meta) return '음고 오류'
               const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
-              return lbl?.text || '오차'
+              return lbl?.text || '음고 오류'
             }
             return `${ctx.dataset.label}: ${midiToNaturalName(Math.round(ctx.parsed.y))}`
           }
@@ -362,26 +384,9 @@ function startPlaybackPointer(beat, durationSec, tempo) {
 }
 
 function highlightLyrics(beat, durationMs) {
-  const lyricsRow = document.getElementById('lyricsRow')
-  if (!lyricsRow) return
-  const spans = lyricsRow.querySelectorAll('span')
-  spans.forEach(span => {
-    const text = span.textContent || ''
-    const match = text.match(/^(\d+)\|(\d+):/)
-    if (match) {
-      const m = parseInt(match[1])
-      const b = parseInt(match[2])
-      const lyricBeat = (m - 1) * 4 + (b - 1)
-      if (Math.abs(lyricBeat - beat) < 0.5) {
-        span.style.color = '#ff8c00'
-        span.style.fontWeight = 'bold'
-        setTimeout(() => {
-          span.style.color = ''
-          span.style.fontWeight = ''
-        }, durationMs)
-      }
-    }
-  })
+  // 🎵 캔버스 기반 가사 하이라이트: 차트 강조 효과로 대체
+  // 해당 박 주변을 시각적으로 강조하는 효과는 highlightErrorBar에서 처리됨
+  console.log('[highlightLyrics] beat:', beat, 'duration:', durationMs)
 }
 
 let userDebounce = 0
