@@ -72,33 +72,41 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
     noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushLine(linesUser,b) })
     
-    // 🎯 음고 오류만 X표시 (리듬 오류는 제외)
+    // 🎯 음고 또는 리듬 오류가 있는 음표에 X표시
     noteView.issues.forEach((iss, idx)=>{
       if (iss.beat>=windowStart && iss.beat<=windowStart+windowBeats){
         crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
         crossIndexMap.push(idx)
         
-        // 🎯 음고 오류 레이블 표시 (±75 Cent 초과만 X표시되므로)
+        // 🎯 오류 레이블 표시: 음고 및 리듬 오류 모두 표시
         const parts = []
+        const tempo = reference.tempoBpm || 120
+        const sixteenthNoteDuration = 60000 / (tempo * 4)
+        const tolMs = sixteenthNoteDuration * 0.8
+        
+        // 음고 오류 체크
         if (iss.pitchDiff != null){
           const cents = Math.abs(iss.pitchDiff) * 100
-          if (cents > 75) { // 75 Cent 이상만 심각한 오류
-            parts.push(iss.pitchDiff > 0 ? `${cents.toFixed(0)}센트 높음` : `${cents.toFixed(0)}센트 낮음`)
+          if (cents > 75) { // 75 Cent 이상은 음고 오류
+            parts.push(iss.pitchDiff > 0 ? `음고: ${cents.toFixed(0)}센트 높음` : `음고: ${cents.toFixed(0)}센트 낮음`)
           }
         }
         
-        // 리듬 정보는 참고용으로만 표시 (X표시 기준은 아님)
-        const tempo = reference.tempoBpm || 120
+        // 리듬 오류 체크 (동적 기준)
         const startMs = iss.startDiff != null ? Math.abs(iss.startDiff) * (60000 / tempo) : 0
-        if (startMs > 150){
-          parts.push(`(참고: ${iss.startDiff > 0 ? '늦게' : '빠르게'} 시작)`)
+        const endMs = iss.endDiff != null ? Math.abs(iss.endDiff) * (60000 / tempo) : 0
+        if (startMs > tolMs){
+          parts.push(`리듬: ${iss.startDiff > 0 ? '늦게' : '빠르게'} 시작 (${startMs.toFixed(0)}ms)`)
+        }
+        if (endMs > tolMs && Math.abs(endMs - startMs) > 10){
+          parts.push(`리듬: ${iss.endDiff > 0 ? '늦게' : '빠르게'} 종료 (${endMs.toFixed(0)}ms)`)
         }
         
-        if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' ') })
+        if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })
       }
     })
     
-    console.log('[X표시] 음고 오류 개수:', crosses.length)
+    console.log('[X표시] 음고/리듬 오류 개수:', crosses.length)
     return { linesRef, linesUser, crosses, errorLabels, crossIndexMap }
   }
 
@@ -125,27 +133,41 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           const xScale = chart.scales.x
           const yScale = chart.scales.y
           
-          // 🎵 각 가사를 해당 음표 막대 바로 아래에 그리기
+          // 🎵 각 가사를 해당 음표 막대바 바로 아래에 그리기
           lyricsInWindow.forEach(lyric => {
+            // 해당 가사와 일치하는 음표 찾기
+            const note = reference.notes.find(n => Math.abs(n.startBeat - lyric.beat) < 0.01)
+            if (!note) return
+            
             const xPixel = xScale.getPixelForValue(lyric.beat)
-            const yBottom = yScale.bottom + 8 // 그래프 하단에서 약간 아래
+            // 🎯 Y좌표를 음표의 MIDI 값 기준으로 막대 바로 아래에 배치
+            const midiPixel = yScale.getPixelForValue(note.midi)
+            const yBottom = midiPixel + 22 // 막대 바로 아래 22px (가독성 개선)
             
             ctx.save()
-            ctx.font = 'bold 13px sans-serif'
-            ctx.fillStyle = '#333'
+            ctx.font = 'bold 16px "맑은 고딕", sans-serif'
+            ctx.fillStyle = '#1a1a1a'
             ctx.textAlign = 'center'
             ctx.textBaseline = 'top'
             
             // 🎯 가사 텍스트를 음표 시작 위치(X좌표)에 정확히 동기화
+            // 배경 박스로 가독성 향상
+            const textWidth = ctx.measureText(lyric.text).width
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+            ctx.fillRect(xPixel - textWidth/2 - 4, yBottom - 2, textWidth + 8, 20)
+            
+            ctx.fillStyle = '#1a1a1a'
             ctx.fillText(lyric.text, xPixel, yBottom)
             
-            // 연결선 (막대에서 가사로)
-            ctx.strokeStyle = 'rgba(0,0,0,0.2)'
-            ctx.lineWidth = 1
+            // 연결선 (막대에서 가사로) - 짧고 명확하게
+            ctx.strokeStyle = 'rgba(0,0,0,0.25)'
+            ctx.lineWidth = 1.5
+            ctx.setLineDash([2, 2])
             ctx.beginPath()
-            ctx.moveTo(xPixel, yScale.bottom)
+            ctx.moveTo(xPixel, midiPixel + 4)
             ctx.lineTo(xPixel, yBottom - 2)
             ctx.stroke()
+            ctx.setLineDash([])
             
             ctx.restore()
           })
@@ -153,7 +175,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       }],
       options: {
         animation:false, maintainAspectRatio:false,
-        layout: { padding: { bottom: 30 } }, // 🎵 가사 공간 확보
+        layout: { padding: { bottom: 10 } }, // 가사가 그래프 내부에 있으므로 최소 여백
         scales: {
           x: { type:'linear', min:windowStart, max:windowStart+windowBeats, title:{display:true,text:'박 (4/4)'}, ticks:{
               stepSize: 1,
@@ -165,7 +187,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
               }, maxRotation:0, autoSkip:false },
               grid:{ color:(c)=>{ const v=c.tick.value||0; return (Math.abs(v%4)<1e-6)?'#cfd8dc':'#e9eef1' }, lineWidth:(c)=>{ const v=c.tick.value||0; return (Math.abs(v%4)<1e-6)?1.5:0.6 } }
           },
-          y: { type:'linear', min: Math.min(...yTicks.map(t=>t.value)) - 1, max: Math.max(...yTicks.map(t=>t.value)) + 1,
+          y: { type:'linear', min: Math.min(...yTicks.map(t=>t.value)) - 1, max: Math.max(...yTicks.map(t=>t.value)) + 3,
                ticks:{ callback:(v)=>{ const t=yTicks.find(t=>t.value===v); return t? t.label : '' }, stepSize:1 }, title:{display:true,text:'음고'} }
         },
         plugins: { tooltip:{ enabled:true, mode:'nearest', intersect:true, callbacks:{
@@ -219,16 +241,24 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             if (beat != null) await playUserAtBeat(audioUrl, beat, reference.tempoBpm)
           }
         },
-        onHover: async (_, elements) => {
+        onHover: async (evt, elements) => {
           if (!elements || !elements.length) return
           const el = elements[0]
           const crossDatasetIdx = chart.data.datasets.length - 1
+          
+          // 🎵 모든 음표 막대에 청음 비교 기능 제공
           if (el.datasetIndex === crossDatasetIdx) {
+            // X표시를 호버한 경우: A/B 비교 재생
             const scatterPointIdx = el.index
             const aIdx = crossIndexMap[scatterPointIdx]
             console.log('[HOVER X] aIdx:', aIdx)
             const issue = noteView?.issues?.[aIdx]
             const beat = issue?.beat ?? crosses[scatterPointIdx]?.x
+            if (beat != null) await playAB(reference, audioUrl, beat)
+          } else {
+            // 정답 또는 사용자 막대를 호버한 경우: A/B 비교 재생
+            const beat = el.element?.x ?? evt.chart.scales.x.getValueForPixel(evt.x)
+            console.log('[HOVER BAR] beat:', beat, 'datasetIndex:', el.datasetIndex)
             if (beat != null) await playAB(reference, audioUrl, beat)
           }
         }

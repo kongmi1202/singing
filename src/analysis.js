@@ -191,8 +191,12 @@ export function buildNoteComparisons(reference, pitchTrack) {
   // 🎯 교육적 허용 범위 확장: 자연스러운 표현을 허용하면서 심각한 오류만 감지
   const tolCents = 75 // ±75 Cent: 반음(100 Cent)의 3/4, 비브라토 등 자연스러운 떨림 허용
   const tolPitch = tolCents / 100 // 0.75 semitones
-  const tolMs = 150 // ±150ms: 감정 표현과 호흡으로 인한 자연스러운 박자 밀림 허용
-  const tolBeats = (tolMs / 1000) * (reference.tempoBpm / 60) // ~0.3 beats @ 120BPM
+  
+  // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 길이의 80%
+  const bpm = reference.tempoBpm || 120
+  const sixteenthNoteDuration = 60000 / (bpm * 4) // 16분음표 길이 (ms)
+  const tolMs = sixteenthNoteDuration * 0.8 // 동적 허용 범위
+  const tolBeats = (tolMs / 1000) * (bpm / 60)
 
   for (const n of reference.notes) {
     const start = n.startBeat
@@ -237,20 +241,21 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const startDiff = uStart - start
     const endDiff = uEnd - end
     
-    // 🎯 X표시 기준 최종 강화: 음고 오류만 표시, 리듬 오류는 완전 제거
-    // 음표의 중앙 60% 구간에서 추출된 F0 중앙값이 ±75 Cent 범위를 벗어났을 때만 X표시
+    // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (BPM 기반 동적 판단)
+    // 음고: 중앙 60% 구간 F0 중앙값이 ±75 Cent 초과
+    // 리듬: 동적 계산된 Δt (16분음표 길이의 80%) 초과
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
+    const isRhythmError = (Math.abs(startDiff) > tolBeats || Math.abs(endDiff) > tolBeats)
     
-    if (isPitchError) {
-      // ⏱️ 리듬 정보는 저장하되, X표시 판단에는 사용하지 않음
+    if (isPitchError || isRhythmError) {
       result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
     }
     
-    // 🎨 시각화 교육적 보정: X표시가 없으면(정답이면) 막대를 정답과 일치시킴
-    // 이렇게 하면 "정답 = 막대 일치"로 시각적 혼란 제거
-    if (!isPitchError && uMidi != null) {
-      // ±75 Cent 이내 = 정답 → 사용자 막대를 정답 위치로 강제 일치
+    // 🎨 시각적 일치 보정: X표가 없으면(음고와 리듬 모두 정답) 막대를 정답과 완벽히 일치
+    if (!isPitchError && !isRhythmError && uMidi != null) {
       result.barsUser[result.barsUser.length - 1].midi = n.midi
+      result.barsUser[result.barsUser.length - 1].x0 = start
+      result.barsUser[result.barsUser.length - 1].x1 = end
     }
   }
 
