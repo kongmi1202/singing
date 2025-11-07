@@ -3,7 +3,7 @@ import { Midi } from '@tonejs/midi'
 const BUILT_IN = [
   {
     id: 'twinkle',
-    title: '작은 별 (4/4, C 메이저)',
+    title: '작은 별 (4/4, C 메이저, ♩=120)',
     tempoBpm: 120,
     timeSig: [4, 4],
     key: 'C',

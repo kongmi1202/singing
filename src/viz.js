@@ -39,6 +39,15 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             <li>느린 템포로 먼저 정확히 맞춘 뒤 빠르게 올리세요.</li>
           </ul>
         </div>
+        <div class="box" style="background:#f8f9fa;border-left:4px solid #3a86ff;">
+          <h3>📊 그래프 분석 가이드</h3>
+          <ul style="font-size:13px;line-height:1.6;">
+            <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
+            <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±75 Cent 초과) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
+            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 정답 소리와 내 노래 소리를 비교할 수 있습니다. 마우스 커서가 👆 포인터로 바뀌면 클릭 가능합니다!</li>
+          </ul>
+        </div>
         <audio id="userPlayback" controls src="${audioUrl}"></audio>
       </div>
     </div>
@@ -184,6 +193,10 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       options: {
         animation:false, maintainAspectRatio:false,
         layout: { padding: { bottom: 10 } }, // 가사가 그래프 내부에 있으므로 최소 여백
+        onHover: (event, activeElements) => {
+          // 🎵 그래프 위에서는 항상 포인터 커서 표시
+          event.native.target.style.cursor = 'pointer'
+        },
         scales: {
           x: { type:'linear', min:windowStart, max:windowStart+windowBeats, title:{display:true,text:'박 (4/4)'}, ticks:{
               stepSize: 1,
@@ -231,22 +244,45 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         } }, legend:{ position:'top' } },
         onClick: async (evt, elements) => {
           console.log('[CLICK] elements:', elements)
-          if (!elements || !elements.length) return
-          const el = elements[0]
           const crossDatasetIdx = chart.data.datasets.length - 1
-          if (el.datasetIndex === crossDatasetIdx) {
-            // 🎵 X표를 클릭: A/B 비교 재생
-            const scatterPointIdx = el.index
-            const aIdx = crossIndexMap[scatterPointIdx]
-            console.log('[CLICK X] aIdx:', aIdx, 'issue:', noteView?.issues?.[aIdx])
-            const issue = noteView?.issues?.[aIdx]
-            const beat = issue?.beat ?? crosses[scatterPointIdx]?.x
-            if (beat != null) await playAB(reference, audioUrl, beat)
+          
+          // 🎵 요소를 클릭한 경우
+          if (elements && elements.length > 0) {
+            const el = elements[0]
+            if (el.datasetIndex === crossDatasetIdx) {
+              // X표를 클릭: A/B 비교 재생
+              const scatterPointIdx = el.index
+              const aIdx = crossIndexMap[scatterPointIdx]
+              console.log('[CLICK X] aIdx:', aIdx, 'issue:', noteView?.issues?.[aIdx])
+              const issue = noteView?.issues?.[aIdx]
+              const beat = issue?.beat ?? crosses[scatterPointIdx]?.x
+              if (beat != null) await playAB(reference, audioUrl, beat)
+              return
+            }
+          }
+          
+          // 🎵 그래프 영역 아무 곳이나 클릭: 해당 위치의 beat로 A/B 비교 재생
+          const xScale = evt.chart.scales.x
+          const canvasPosition = Chart.helpers.getRelativePosition(evt, evt.chart)
+          const beat = xScale.getValueForPixel(canvasPosition.x)
+          
+          console.log('[CLICK GRAPH AREA] beat:', beat)
+          
+          // 클릭한 위치에 해당하는 음표 찾기
+          const note = reference.notes.find(n => 
+            beat >= n.startBeat && beat < n.startBeat + n.durationBeats
+          )
+          
+          if (note) {
+            console.log('[CLICK GRAPH] note found:', note)
+            // 🎨 시각적 피드백: 캔버스 깜박임
+            const canvas = evt.chart.canvas
+            canvas.style.opacity = '0.7'
+            setTimeout(() => { canvas.style.opacity = '1' }, 100)
+            
+            await playAB(reference, audioUrl, note.startBeat)
           } else {
-            // 🎵 음표 막대를 클릭: A/B 비교 재생
-            const beat = el.element?.x ?? evt.chart.scales.x.getValueForPixel(evt.x)
-            console.log('[CLICK BAR] beat:', beat)
-            if (beat != null) await playAB(reference, audioUrl, beat)
+            console.log('[CLICK GRAPH] no note found at beat:', beat)
           }
         }
       }

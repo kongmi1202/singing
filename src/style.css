@@ -70,7 +70,13 @@ h1 {
 .results-grid canvas { width: 100%; height: 420px; }
 /* Ensure a hard, reliable canvas height regardless of Chart.js sizing quirks */
 .chart-wrap{ height:420px; position: relative; }
-.chart-wrap > canvas{ height:100% !important; width:100% !important; display:block; }
+.chart-wrap > canvas{ 
+  height:100% !important; 
+  width:100% !important; 
+  display:block; 
+  cursor: pointer !important; /* 🎵 그래프 전체 영역 클릭 가능 표시 */
+  transition: opacity 0.1s ease;
+}
 .side .box { background: rgba(255,255,255,0.06); padding: 12px; border-radius: 8px; margin-bottom: 12px; }
 
 button {
