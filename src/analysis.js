@@ -192,10 +192,10 @@ export function buildNoteComparisons(reference, pitchTrack) {
   const tolCents = 75 // ±75 Cent: 반음(100 Cent)의 3/4, 비브라토 등 자연스러운 떨림 허용
   const tolPitch = tolCents / 100 // 0.75 semitones
   
-  // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 길이의 80%
+  // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 길이의 150% (R=1.5)
   const bpm = reference.tempoBpm || 120
   const sixteenthNoteDuration = 60000 / (bpm * 4) // 16분음표 길이 (ms)
-  const tolMs = sixteenthNoteDuration * 0.8 // 동적 허용 범위
+  const tolMs = sixteenthNoteDuration * 1.5 // 동적 허용 범위 (R=1.5, 심각한 오류만 선별)
   const tolBeats = (tolMs / 1000) * (bpm / 60)
 
   for (const n of reference.notes) {
@@ -235,27 +235,30 @@ export function buildNoteComparisons(reference, pitchTrack) {
     // Fallbacks
     if (uStart==null) uStart = start
     if (uEnd==null) uEnd = end
-    result.barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi })
 
     const pitchDiff = (uMidi==null) ? null : (uMidi - n.midi)
     const startDiff = uStart - start
     const endDiff = uEnd - end
     
-    // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (BPM 기반 동적 판단)
+    // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (음표 시작점만)
     // 음고: 중앙 60% 구간 F0 중앙값이 ±75 Cent 초과
-    // 리듬: 동적 계산된 Δt (16분음표 길이의 80%) 초과
+    // 리듬: 음표 시작점 오차가 Δt (16분음표 길이, R=1.5) 초과
+    //       ※ 종료 시점/길이 오차는 X표시 기준에서 제외 (교육적 동기 부여)
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
-    const isRhythmError = (Math.abs(startDiff) > tolBeats || Math.abs(endDiff) > tolBeats)
+    const isRhythmError = (Math.abs(startDiff) > tolBeats) // 시작점만 체크
+    
+    // ✅ 통합 정답 플래그: 음고와 리듬 모두 통과했을 때만 true
+    const isCorrect = !isPitchError && !isRhythmError && uMidi != null
     
     if (isPitchError || isRhythmError) {
       result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
     }
     
-    // 🎨 시각적 일치 보정: X표가 없으면(음고와 리듬 모두 정답) 막대를 정답과 완벽히 일치
-    if (!isPitchError && !isRhythmError && uMidi != null) {
-      result.barsUser[result.barsUser.length - 1].midi = n.midi
-      result.barsUser[result.barsUser.length - 1].x0 = start
-      result.barsUser[result.barsUser.length - 1].x1 = end
+    // 🎨 시각적 일치 보정: 정답이면 막대를 정답과 완벽히 일치시켜 저장
+    if (isCorrect) {
+      result.barsUser.push({ x0: start, x1: end, midi: n.midi, isCorrect: true })
+    } else {
+      result.barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi, isCorrect: false })
     }
   }
 

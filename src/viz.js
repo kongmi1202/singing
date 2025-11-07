@@ -70,7 +70,19 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       arr.push({ x: x0, y: bar.midi }, { x: x1, y: bar.midi }, { x: null, y: null })
     }
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
-    noteView?.barsUser?.forEach(b=>{ if (b.midi!=null) pushLine(linesUser,b) })
+    // ✅ 사용자 막대 렌더링: isCorrect=true인 경우 백엔드에서 이미 정답과 일치시켜 저장됨
+    // 따라서 프론트엔드는 그대로 렌더링만 하면 시각적 일치가 자동 보장됨
+    noteView?.barsUser?.forEach((b, idx)=>{ 
+      if (b.midi!=null) {
+        // 디버그: 정답과 일치 여부 확인
+        if (b.isCorrect && noteView?.barsRef?.[idx]) {
+          const ref = noteView.barsRef[idx]
+          const match = (Math.abs(b.x0 - ref.x0) < 0.01 && Math.abs(b.x1 - ref.x1) < 0.01 && b.midi === ref.midi)
+          if (!match) console.warn('[시각적 불일치]', idx, 'user:', b, 'ref:', ref)
+        }
+        pushLine(linesUser, b)
+      }
+    })
     
     // 🎯 음고 또는 리듬 오류가 있는 음표에 X표시
     noteView.issues.forEach((iss, idx)=>{
@@ -78,11 +90,11 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         crosses.push({ x: iss.beat, y: iss.midi, meta: iss })
         crossIndexMap.push(idx)
         
-        // 🎯 오류 레이블 표시: 음고 및 리듬 오류 모두 표시
+        // 🎯 오류 레이블 표시: 음고 및 리듬(시작점만) 오류 표시
         const parts = []
         const tempo = reference.tempoBpm || 120
         const sixteenthNoteDuration = 60000 / (tempo * 4)
-        const tolMs = sixteenthNoteDuration * 0.8
+        const tolMs = sixteenthNoteDuration * 1.5 // R=1.5: 16분음표 길이의 150%
         
         // 음고 오류 체크
         if (iss.pitchDiff != null){
@@ -92,14 +104,10 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           }
         }
         
-        // 리듬 오류 체크 (동적 기준)
+        // 리듬 오류 체크 (시작점만, 종료 시점은 X표시 기준에서 제외)
         const startMs = iss.startDiff != null ? Math.abs(iss.startDiff) * (60000 / tempo) : 0
-        const endMs = iss.endDiff != null ? Math.abs(iss.endDiff) * (60000 / tempo) : 0
         if (startMs > tolMs){
           parts.push(`리듬: ${iss.startDiff > 0 ? '늦게' : '빠르게'} 시작 (${startMs.toFixed(0)}ms)`)
-        }
-        if (endMs > tolMs && Math.abs(endMs - startMs) > 10){
-          parts.push(`리듬: ${iss.endDiff > 0 ? '늦게' : '빠르게'} 종료 (${endMs.toFixed(0)}ms)`)
         }
         
         if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })
@@ -124,7 +132,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       data: { datasets: [
         { label:'정답', data: linesRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
         { label:'사용자', data: linesUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
-        { label:'오차', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
+        { label:'오류 (X표시)', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
       ]},
       plugins: [{
         id: 'lyricsPlugin',
@@ -212,11 +220,11 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
                               : '음정 양호 ✓'
               return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc}`
             }
-            if (ctx.dataset.label==='오차') {
+            if (ctx.dataset.label==='오류 (X표시)') {
               const pt = crosses[ctx.dataIndex]
-              if (!pt?.meta) return '음고 오류'
+              if (!pt?.meta) return '오류'
               const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
-              return lbl?.text || '음고 오류'
+              return lbl?.text || '오류'
             }
             return `${ctx.dataset.label}: ${midiToNaturalName(Math.round(ctx.parsed.y))}`
           }
@@ -227,7 +235,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           const el = elements[0]
           const crossDatasetIdx = chart.data.datasets.length - 1
           if (el.datasetIndex === crossDatasetIdx) {
-            // Clicked on red X: play A/B
+            // 🎵 X표를 클릭: A/B 비교 재생
             const scatterPointIdx = el.index
             const aIdx = crossIndexMap[scatterPointIdx]
             console.log('[CLICK X] aIdx:', aIdx, 'issue:', noteView?.issues?.[aIdx])
@@ -235,30 +243,9 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             const beat = issue?.beat ?? crosses[scatterPointIdx]?.x
             if (beat != null) await playAB(reference, audioUrl, beat)
           } else {
-            // Clicked on bar: play user at that beat
+            // 🎵 음표 막대를 클릭: A/B 비교 재생
             const beat = el.element?.x ?? evt.chart.scales.x.getValueForPixel(evt.x)
             console.log('[CLICK BAR] beat:', beat)
-            if (beat != null) await playUserAtBeat(audioUrl, beat, reference.tempoBpm)
-          }
-        },
-        onHover: async (evt, elements) => {
-          if (!elements || !elements.length) return
-          const el = elements[0]
-          const crossDatasetIdx = chart.data.datasets.length - 1
-          
-          // 🎵 모든 음표 막대에 청음 비교 기능 제공
-          if (el.datasetIndex === crossDatasetIdx) {
-            // X표시를 호버한 경우: A/B 비교 재생
-            const scatterPointIdx = el.index
-            const aIdx = crossIndexMap[scatterPointIdx]
-            console.log('[HOVER X] aIdx:', aIdx)
-            const issue = noteView?.issues?.[aIdx]
-            const beat = issue?.beat ?? crosses[scatterPointIdx]?.x
-            if (beat != null) await playAB(reference, audioUrl, beat)
-          } else {
-            // 정답 또는 사용자 막대를 호버한 경우: A/B 비교 재생
-            const beat = el.element?.x ?? evt.chart.scales.x.getValueForPixel(evt.x)
-            console.log('[HOVER BAR] beat:', beat, 'datasetIndex:', el.datasetIndex)
             if (beat != null) await playAB(reference, audioUrl, beat)
           }
         }
