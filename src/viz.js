@@ -4,7 +4,7 @@ import * as Tone from 'tone'
 
 Chart.register(LineController, LineElement, PointElement, BarController, BarElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController)
 
-export function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl }) {
+export function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo }) {
   // Store globally for playback functions
   globalNoteView = noteView
   globalReference = reference
@@ -12,6 +12,10 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
   
   const results = document.getElementById('results')
   results.innerHTML = `
+    <div style="margin-bottom:16px;padding:16px;background:rgba(100,108,255,0.1);border-radius:10px;border-left:4px solid #646cff;">
+      <h2 style="margin:0 0 8px 0;">📝 분석 결과 - ${studentInfo?.name || '학생'} (${studentInfo?.id || '-'})</h2>
+      <p style="margin:0;opacity:0.8;font-size:14px;">${new Date().toLocaleString('ko-KR')}</p>
+    </div>
     <div class="results-grid">
       <div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
@@ -31,7 +35,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
             <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
             <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±75 Cent 초과) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
-            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 정답 소리와 내 노래 소리가 <strong>동시에 재생</strong>됩니다. 두 소리의 차이를 즉각적으로 비교할 수 있습니다!</li>
+            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 해당 <strong>마디 전체</strong>의 정답 멜로디와 내 노래가 <strong>동시에 재생</strong>됩니다. Pre-Attack(준비 구간)을 포함하여 자연스럽게 비교할 수 있습니다!</li>
           </ul>
         </div>
         <div class="box">
@@ -328,16 +332,27 @@ async function playAB(reference, audioUrl, beat) {
     const tempo = reference.tempoBpm || 120
     const secondsPerBeat = 60 / tempo
     const offsetBeats = globalNoteView?.offsetBeats || 0
-    const tSec = (beat + offsetBeats) * secondsPerBeat
-    const dur = 0.6
     const note = reference.notes.find(n => beat >= n.startBeat && beat < n.startBeat + n.durationBeats)
     
-    console.log('[playAB] tempo:', tempo, 'offsetBeats:', offsetBeats, 'tSec:', tSec, 'note:', note)
+    // 🎵 마디 단위 재생: 클릭한 음표가 속한 마디 전체를 재생
+    const beatsPerMeasure = reference.timeSig ? reference.timeSig[0] : 4 // 4/4 박자
+    const measureStart = Math.floor(beat / beatsPerMeasure) * beatsPerMeasure
+    const measureDuration = beatsPerMeasure // 마디 길이 (박 단위)
     
-    // Visual feedback (동시 재생이므로 dur만큼만)
-    highlightErrorBar(beat, dur * 1000)
-    startPlaybackPointer(beat, dur, tempo)
-    highlightLyrics(beat, dur * 1000)
+    // 🎯 Pre-Attack 포함: 마디 시작점보다 500ms 앞에서 재생 시작
+    const preAttackSeconds = 0.5 // 500ms
+    const measureStartSec = (measureStart + offsetBeats) * secondsPerBeat
+    const tSecWithPreAttack = Math.max(0, measureStartSec - preAttackSeconds)
+    const durWithPreAttack = (measureDuration * secondsPerBeat) + preAttackSeconds
+    
+    console.log('[playAB] tempo:', tempo, 'offsetBeats:', offsetBeats)
+    console.log('[playAB] measure:', measureStart, 'durBeats:', measureDuration, 'note:', note)
+    console.log('[playAB] tSec:', tSecWithPreAttack, 'dur:', durWithPreAttack)
+    
+    // Visual feedback (마디 전체 + pre-attack)
+    highlightErrorBar(measureStart, durWithPreAttack * 1000)
+    startPlaybackPointer(measureStart, durWithPreAttack, tempo)
+    highlightLyrics(measureStart, durWithPreAttack * 1000)
     
     // Create fresh audio element each time
     const audio = new Audio(audioUrl)
@@ -354,43 +369,53 @@ async function playAB(reference, audioUrl, beat) {
       audio.load()
     })
     
-    // Seek to position
-    const seekTo = Math.max(0, Math.min(tSec, audio.duration - dur))
+    // Seek to position (Pre-Attack 포함)
+    const seekTo = Math.max(0, Math.min(tSecWithPreAttack, audio.duration - durWithPreAttack))
     audio.currentTime = seekTo
-    console.log('[playAB] seeked to:', seekTo)
+    console.log('[playAB] seeked to:', seekTo, 'will play for:', durWithPreAttack, 'sec')
     
-    // 🎵 동시 재생: 사용자 오디오와 정답 소리를 시간적으로 완벽히 동기화
+    // 🎵 동시 재생: 사용자 오디오와 마디 전체의 정답 멜로디를 완벽히 동기화
     try {
       await Tone.start()
       
-      // Step 1: 정답 소리(synth) 준비
-      const synth = new Tone.Synth({
+      // 🎼 마디에 속한 모든 음표들의 정답 멜로디 생성
+      const synth = new Tone.PolySynth(Tone.Synth, {
         volume: -6 // 정답 소리를 약간 작게 (사용자 소리와 구분)
       }).toDestination()
       
-      if (note) {
-        const freq = midiToFreq(note.midi)
-        console.log('[playAB] ▶ SIMULTANEOUS PLAYBACK: user audio + synth freq:', freq)
+      // 마디 내의 모든 음표 찾기
+      const notesInMeasure = reference.notes.filter(n => 
+        n.startBeat >= measureStart && n.startBeat < measureStart + measureDuration
+      )
+      
+      console.log('[playAB] ▶ SIMULTANEOUS PLAYBACK: measure', measureStart / beatsPerMeasure + 1)
+      console.log('[playAB] notes in measure:', notesInMeasure.length)
+      
+      // Step 1: 사용자 오디오 재생 시작
+      await audio.play()
+      
+      // Step 2: 마디의 각 음표를 정확한 타이밍에 재생
+      notesInMeasure.forEach(n => {
+        const noteDelay = (n.startBeat - measureStart) * secondsPerBeat + preAttackSeconds
+        const noteDur = n.durationBeats * secondsPerBeat
+        const freq = midiToFreq(n.midi)
         
-        // Step 2: 사용자 오디오와 정답 소리를 동시에 시작
-        await audio.play()
-        synth.triggerAttackRelease(freq, dur)
-        
-        // Step 3: dur 시간 후 사용자 오디오 중지
         setTimeout(() => {
-          audio.pause()
-          console.log('[playAB] ⏸ simultaneous playback ended')
-        }, dur * 1000)
-      } else {
-        console.warn('[playAB] no note found for beat:', beat)
-        await audio.play()
-        setTimeout(() => audio.pause(), dur * 1000)
-      }
+          synth.triggerAttackRelease(freq, noteDur)
+        }, noteDelay * 1000)
+      })
+      
+      // Step 3: 마디 전체 재생 후 사용자 오디오 중지
+      setTimeout(() => {
+        audio.pause()
+        console.log('[playAB] ⏸ simultaneous playback ended')
+      }, durWithPreAttack * 1000)
+      
     } catch (e) {
       console.error('[playAB] synth error:', e)
       // synth 실패 시에도 사용자 오디오는 재생
       await audio.play()
-      setTimeout(() => audio.pause(), dur * 1000)
+      setTimeout(() => audio.pause(), durWithPreAttack * 1000)
     }
     
   } catch (e) {

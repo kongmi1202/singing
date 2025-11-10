@@ -222,16 +222,51 @@ export function buildNoteComparisons(reference, pitchTrack) {
       // 🧠 중앙값(Median) 사용: 순간적 스파이크나 노이즈의 영향 최소화
       uMidi = samples[Math.floor(samples.length / 2)]
     }
-    // Estimate timing: first/last beat where voiced near the window
+    // 🎯 리듬 판정: 안정적 진동 시작 시점 탐지 (발음 초기 불안정성 제거)
+    // 기존 문제점: 발음 시작의 불안정한 어택(attack) 구간을 리듬 시작점으로 간주
+    // 개선 방법: 연속된 프레임들의 F0가 안정적으로 유지되는 시점을 리듬 시작점으로 사용
     let uStart = null, uEnd = null
+    
+    // 안정적 진동 시작점 찾기: 연속된 유효 F0 + 값의 안정성(변동 ≤1.0 semitone)
+    const stabilityThreshold = 4 // 연속 프레임 개수 (약 0.2초 @ 50fps)
+    const pitchStabilityTol = 1.0 // 반음 이내 변동만 안정으로 간주
+    const recentPitches = []
+    
     for (let b=start-0.5; b<end+0.5; b+=step){
       const u = sampleUserAtBeat(b)
-      if (u!=null){ uStart = b; break; }
+      if (u!=null) {
+        recentPitches.push({ beat: b, midi: u })
+        
+        // 최근 stabilityThreshold개 프레임만 유지 (슬라이딩 윈도우)
+        if (recentPitches.length > stabilityThreshold) {
+          recentPitches.shift()
+        }
+        
+        // 충분한 프레임이 모였고, 모두 안정적인지 확인
+        if (recentPitches.length >= stabilityThreshold && uStart == null) {
+          const pitches = recentPitches.map(p => p.midi)
+          const minP = Math.min(...pitches)
+          const maxP = Math.max(...pitches)
+          const variation = maxP - minP
+          
+          // 🎯 변동이 1.0 semitone 이내면 안정적 진동으로 판단
+          // 이렇게 하면 발음 초기의 피치 불안정성(슬라이드, 글리산도)을 건너뜀
+          if (variation <= pitchStabilityTol) {
+            uStart = recentPitches[0].beat // 안정 구간의 첫 프레임
+            break
+          }
+        }
+      } else {
+        recentPitches.length = 0 // 무성음 만나면 리셋
+      }
     }
+    
+    // 종료점 찾기 (기존 로직 유지)
     for (let b=end+0.5; b>start-0.5; b-=step){
       const u = sampleUserAtBeat(b)
       if (u!=null){ uEnd = b; break; }
     }
+    
     // Fallbacks
     if (uStart==null) uStart = start
     if (uEnd==null) uEnd = end

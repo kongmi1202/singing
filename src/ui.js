@@ -6,12 +6,76 @@ import { renderResults } from './viz.js'
 let selectedSongId = null
 let uploadedFile = null
 let audioUrl = null
+let studentInfo = { id: '', name: '' }
 
 export function initUI() {
+  showStudentInfoScreen()
+}
+
+function showStudentInfoScreen() {
+  const app = document.querySelector('#app')
+  app.innerHTML = `
+    <div class="container" style="max-width:500px;margin:0 auto;">
+      <h1>🎵 AI 가창 분석 코치</h1>
+      <div style="text-align:center;margin-bottom:30px;opacity:0.8;">
+        <p>노래 실력을 AI가 분석하고 피드백을 제공합니다</p>
+      </div>
+      <section class="panel" style="background:rgba(255,255,255,0.05);padding:24px;border-radius:12px;">
+        <h3 style="margin-top:0;">학생 정보 입력</h3>
+        <div style="margin-bottom:16px;">
+          <label for="studentId" style="display:block;margin-bottom:6px;">학번</label>
+          <input id="studentId" type="text" placeholder="예: 10131" 
+                 style="width:100%;padding:10px;font-size:16px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;" />
+        </div>
+        <div style="margin-bottom:24px;">
+          <label for="studentName" style="display:block;margin-bottom:6px;">이름</label>
+          <input id="studentName" type="text" placeholder="예: 홍길동" 
+                 style="width:100%;padding:10px;font-size:16px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;" />
+        </div>
+        <button id="startBtn" style="width:100%;padding:14px;font-size:18px;font-weight:bold;">
+          시작하기 →
+        </button>
+        <p style="margin-top:16px;font-size:13px;opacity:0.6;text-align:center;">
+          💡 입력한 정보는 분석 결과 저장에만 사용됩니다
+        </p>
+      </section>
+    </div>
+  `
+  
+  const studentIdInput = document.getElementById('studentId')
+  const studentNameInput = document.getElementById('studentName')
+  const startBtn = document.getElementById('startBtn')
+  
+  startBtn.addEventListener('click', () => {
+    const id = studentIdInput.value.trim()
+    const name = studentNameInput.value.trim()
+    
+    if (!id || !name) {
+      alert('학번과 이름을 모두 입력해 주세요.')
+      return
+    }
+    
+    studentInfo.id = id
+    studentInfo.name = name
+    showAnalysisScreen()
+  })
+  
+  // Enter 키로도 진행 가능
+  studentNameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') startBtn.click()
+  })
+}
+
+function showAnalysisScreen() {
   const app = document.querySelector('#app')
   app.innerHTML = `
     <div class="container">
-      <h1>노래 분석</h1>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h1>노래 분석</h1>
+        <div style="text-align:right;opacity:0.8;">
+          <p style="margin:0;font-size:14px;">👤 ${studentInfo.name} (${studentInfo.id})</p>
+        </div>
+      </div>
       <section class="panel">
         <label for="songSelect">악곡 선택</label>
         <select id="songSelect"></select>
@@ -97,11 +161,11 @@ export function initUI() {
       const noteView = buildNoteComparisons(reference, pitchTrack)
       
       updateLoadingMessage('✨ 결과 화면을 준비하는 중...')
-      renderResults({ reference, pitchTrack, analysis, noteView, audioUrl })
+      renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo })
       
       // 🎉 분석 완료 알림
       hideLoadingOverlay()
-      showCompletionNotification(analysis.verdict)
+      showCompletionNotification(analysis.verdict, studentInfo.name)
       
       document.getElementById('results').style.display = 'block'
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
@@ -133,6 +197,10 @@ function showLoadingOverlay() {
       <div class="loading-bar">
         <div class="loading-bar-fill"></div>
       </div>
+      <div style="margin-top:15px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid #646cff;">
+        <p style="margin:0;font-size:14px;opacity:0.9;">⏱️ <strong>분석에는 1~2분 정도 소요됩니다</strong></p>
+        <p style="margin:5px 0 0 0;font-size:13px;opacity:0.7;">음고, 리듬, 음표별 오류를 세밀하게 분석하는 중입니다. 조금만 기다려 주세요!</p>
+      </div>
       <small style="opacity:0.7;margin-top:10px;">잠시만 기다려 주세요 ☕</small>
     </div>
   `
@@ -161,14 +229,14 @@ function hideLoadingOverlay() {
   }
 }
 
-function showCompletionNotification(verdict) {
+function showCompletionNotification(verdict, studentName) {
   const notification = document.createElement('div')
   notification.id = 'completionNotification'
   notification.innerHTML = `
     <div class="notification-content">
       <div class="notification-icon">🎉</div>
       <h2>분석 완료!</h2>
-      <p>${verdict}! 멋진 연주를 확인해 보세요 ✨</p>
+      <p>${studentName}님, ${verdict}! 멋진 연주를 확인해 보세요 ✨</p>
     </div>
   `
   document.body.appendChild(notification)
