@@ -25,6 +25,15 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         </div>
       </div>
       <div class="side">
+        <div class="box" style="background:#f8f9fa;border-left:4px solid #3a86ff;">
+          <h3>📊 그래프 분석 가이드</h3>
+          <ul style="font-size:13px;line-height:1.6;">
+            <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
+            <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±75 Cent 초과) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
+            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 정답 소리와 내 노래 소리가 <strong>동시에 재생</strong>됩니다. 두 소리의 차이를 즉각적으로 비교할 수 있습니다!</li>
+          </ul>
+        </div>
         <div class="box">
           <h3>분석 요약</h3>
           <p>음정 점수: <b>${analysis.pitchScore}</b></p>
@@ -37,15 +46,6 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             <li>긴 음에서 음정 흔들림을 줄여보세요.</li>
             <li>음이 바뀔 때 호흡을 정리하고 박을 맞추세요.</li>
             <li>느린 템포로 먼저 정확히 맞춘 뒤 빠르게 올리세요.</li>
-          </ul>
-        </div>
-        <div class="box" style="background:#f8f9fa;border-left:4px solid #3a86ff;">
-          <h3>📊 그래프 분석 가이드</h3>
-          <ul style="font-size:13px;line-height:1.6;">
-            <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
-            <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
-            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±75 Cent 초과) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
-            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 정답 소리와 내 노래 소리를 비교할 수 있습니다. 마우스 커서가 👆 포인터로 바뀌면 클릭 가능합니다!</li>
           </ul>
         </div>
         <audio id="userPlayback" controls src="${audioUrl}"></audio>
@@ -334,10 +334,10 @@ async function playAB(reference, audioUrl, beat) {
     
     console.log('[playAB] tempo:', tempo, 'offsetBeats:', offsetBeats, 'tSec:', tSec, 'note:', note)
     
-    // Visual feedback
-    highlightErrorBar(beat, dur * 2 * 1000)
-    startPlaybackPointer(beat, dur * 2, tempo)
-    highlightLyrics(beat, dur * 2 * 1000)
+    // Visual feedback (동시 재생이므로 dur만큼만)
+    highlightErrorBar(beat, dur * 1000)
+    startPlaybackPointer(beat, dur, tempo)
+    highlightLyrics(beat, dur * 1000)
     
     // Create fresh audio element each time
     const audio = new Audio(audioUrl)
@@ -359,31 +359,39 @@ async function playAB(reference, audioUrl, beat) {
     audio.currentTime = seekTo
     console.log('[playAB] seeked to:', seekTo)
     
-    // Step 1: Play user clip
-    await audio.play()
-    console.log('[playAB] ▶ USER AUDIO PLAYING')
-    
-    setTimeout(() => {
-      audio.pause()
-      console.log('[playAB] ⏸ user audio paused')
+    // 🎵 동시 재생: 사용자 오디오와 정답 소리를 시간적으로 완벽히 동기화
+    try {
+      await Tone.start()
       
-      // Step 2: Play correct tone after 100ms gap
-      setTimeout(async () => {
-        try {
-          await Tone.start()
-          const synth = new Tone.Synth().toDestination()
-          if (note) {
-            const freq = midiToFreq(note.midi)
-            synth.triggerAttackRelease(freq, dur)
-            console.log('[playAB] ▶ SYNTH PLAYING freq:', freq)
-          } else {
-            console.warn('[playAB] no note found for beat:', beat)
-          }
-        } catch (e) {
-          console.error('[playAB] synth error:', e)
-        }
-      }, 100)
-    }, dur * 1000)
+      // Step 1: 정답 소리(synth) 준비
+      const synth = new Tone.Synth({
+        volume: -6 // 정답 소리를 약간 작게 (사용자 소리와 구분)
+      }).toDestination()
+      
+      if (note) {
+        const freq = midiToFreq(note.midi)
+        console.log('[playAB] ▶ SIMULTANEOUS PLAYBACK: user audio + synth freq:', freq)
+        
+        // Step 2: 사용자 오디오와 정답 소리를 동시에 시작
+        await audio.play()
+        synth.triggerAttackRelease(freq, dur)
+        
+        // Step 3: dur 시간 후 사용자 오디오 중지
+        setTimeout(() => {
+          audio.pause()
+          console.log('[playAB] ⏸ simultaneous playback ended')
+        }, dur * 1000)
+      } else {
+        console.warn('[playAB] no note found for beat:', beat)
+        await audio.play()
+        setTimeout(() => audio.pause(), dur * 1000)
+      }
+    } catch (e) {
+      console.error('[playAB] synth error:', e)
+      // synth 실패 시에도 사용자 오디오는 재생
+      await audio.play()
+      setTimeout(() => audio.pause(), dur * 1000)
+    }
     
   } catch (e) {
     console.error('[playAB] CRITICAL ERROR:', e)

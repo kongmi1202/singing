@@ -98,6 +98,126 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
+/* 🎨 로딩 오버레이 스타일 */
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#loadingOverlay.show {
+  opacity: 1;
+}
+
+.loading-content {
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 40px;
+  border-radius: 16px;
+  max-width: 500px;
+}
+
+.spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top: 4px solid #646cff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+#loadingMessage {
+  font-size: 16px;
+  color: #fff;
+  margin: 15px 0;
+  min-height: 24px;
+  transition: opacity 0.3s ease;
+}
+
+.loading-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 20px;
+}
+
+.loading-bar-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #646cff, #535bf2, #646cff);
+  background-size: 200% 100%;
+  animation: loadingBar 2s ease-in-out infinite;
+}
+
+@keyframes loadingBar {
+  0%, 100% { transform: translateX(-100%); }
+  50% { transform: translateX(0%); }
+}
+
+/* 🎉 완료 알림 스타일 */
+#completionNotification {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 30px 50px;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+#completionNotification.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.notification-content {
+  text-align: center;
+  color: #fff;
+}
+
+.notification-icon {
+  font-size: 60px;
+  animation: bounce 0.6s ease;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+
+.notification-content h2 {
+  margin: 10px 0;
+  font-size: 28px;
+}
+
+.notification-content p {
+  margin: 5px 0;
+  font-size: 18px;
+  opacity: 0.95;
+}
+
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
