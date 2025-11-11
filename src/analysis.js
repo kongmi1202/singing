@@ -192,10 +192,10 @@ export function buildNoteComparisons(reference, pitchTrack) {
   const tolCents = 100 // ±100 Cent: 반음 경계선까지 허용, 반음을 완전히 틀렸을 때만 오류
   const tolPitch = tolCents / 100 // 1.0 semitones
   
-  // 🎵 BPM 기반 동적 리듬 오차 계산: 8분음표 길이 (자연스러운 연주 허용)
+  // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 × 1.3배 (교육적 균형)
   const bpm = reference.tempoBpm || 120
-  const eighthNoteDuration = 60000 / (bpm * 2) // 8분음표 길이 (ms)
-  const tolMs = eighthNoteDuration // 8분음표 1개 = 심각한 리듬 오류만 감지
+  const sixteenthNoteDuration = 60000 / (bpm * 4) // 16분음표 길이 (ms)
+  const tolMs = sixteenthNoteDuration * 1.3 // 16분음표 × 1.3 = 적절한 리듬 오류 감지
   const tolBeats = (tolMs / 1000) * (bpm / 60)
 
   for (const n of reference.notes) {
@@ -275,12 +275,20 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const startDiff = uStart - start
     const endDiff = uEnd - end
     
-    // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (음표 시작점만)
+    // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (시작점 + 길이)
     // 음고: 중앙 60% 구간 F0 중앙값이 ±100 Cent 초과 (반음 경계선 초과)
-    // 리듬: 음표 시작점 오차가 8분음표 길이 초과 (자연스러운 연주 변화 허용)
-    //       ※ 종료 시점/길이 오차는 X표시 기준에서 제외 (교육적 동기 부여)
+    // 리듬: 
+    //   - 시작점 오차가 16분음표 × 1.3배 초과 (시작이 너무 빠르거나 늦음)
+    //   - 또는 길이 오차가 16분음표 × 1.3배 초과 (너무 길거나 짧게 부름)
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
-    const isRhythmError = (Math.abs(startDiff) > tolBeats) // 시작점만 체크
+    
+    // 리듬 오류: 시작점 오차 OR 길이 오차
+    const actualDuration = uEnd - uStart
+    const expectedDuration = end - start
+    const durationDiff = actualDuration - expectedDuration
+    const isRhythmStartError = Math.abs(startDiff) > tolBeats // 시작점 오차
+    const isRhythmDurationError = Math.abs(durationDiff) > tolBeats // 길이 오차
+    const isRhythmError = isRhythmStartError || isRhythmDurationError
     
     // ✅ 음고 정답 플래그 (리듬과 독립적): 음고만 맞았는지 판단 (Y축 시각화용)
     const isPitchCorrectOnly = !isPitchError && uMidi != null
@@ -292,7 +300,16 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const isCorrect = !isPitchError && !isRhythmError && uMidi != null
     
     if (isPitchError || isRhythmError) {
-      result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
+      result.issues.push({ 
+        beat: start, 
+        midi: n.midi, 
+        pitchDiff, 
+        startDiff, 
+        endDiff,
+        durationDiff: durationDiff,
+        isRhythmStartError,
+        isRhythmDurationError
+      })
     }
     
     // 🎨 시각적 일치 보정 (완전 분리 적용)

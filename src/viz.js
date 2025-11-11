@@ -113,8 +113,8 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         // 🎯 오류 레이블 표시: 음고 및 리듬(시작점만) 오류 표시
         const parts = []
         const tempo = reference.tempoBpm || 120
-        const eighthNoteDuration = 60000 / (tempo * 2)
-        const tolMs = eighthNoteDuration // 8분음표 길이
+        const sixteenthNoteDuration = 60000 / (tempo * 4)
+        const tolMs = sixteenthNoteDuration * 1.3 // 16분음표 × 1.3배
         
         // 음고 오류 체크
         if (iss.pitchDiff != null){
@@ -124,10 +124,16 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           }
         }
         
-        // 리듬 오류 체크 (시작점만, 종료 시점은 X표시 기준에서 제외)
-        const startMs = iss.startDiff != null ? Math.abs(iss.startDiff) * (60000 / tempo) : 0
-        if (startMs > tolMs){
-          parts.push(`리듬: ${iss.startDiff > 0 ? '늦게' : '빠르게'} 시작 (${startMs.toFixed(0)}ms)`)
+        // 리듬 오류 체크 (시작점 + 길이)
+        // 시작점 오류
+        if (iss.isRhythmStartError) {
+          const startMs = Math.abs(iss.startDiff) * (60000 / tempo)
+          parts.push(`시작: ${iss.startDiff > 0 ? '늦게' : '빠르게'} (${startMs.toFixed(0)}ms)`)
+        }
+        // 길이 오류
+        if (iss.isRhythmDurationError) {
+          const durationMs = Math.abs(iss.durationDiff) * (60000 / tempo)
+          parts.push(`길이: ${iss.durationDiff > 0 ? '길게' : '짧게'} (${durationMs.toFixed(0)}ms)`)
         }
         
         if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })

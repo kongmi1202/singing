@@ -190,11 +190,11 @@ function updateAnalyzeEnabled() {
 }
 
 // 🎨 로딩 오버레이 함수들
-let currentStep = 0
+let currentStep = -1
 const totalSteps = 6
 
 function showLoadingOverlay() {
-  currentStep = 0
+  currentStep = -1
   const overlay = document.createElement('div')
   overlay.id = 'loadingOverlay'
   overlay.innerHTML = `
@@ -219,7 +219,7 @@ function showLoadingOverlay() {
       <!-- 다단계 진행 상태 바 -->
       <div class="progress-container">
         <div class="progress-steps">
-          <div class="progress-step active" data-step="0">
+          <div class="progress-step" data-step="0">
             <div class="step-circle">📁</div>
             <div class="step-label">MIDI 로드</div>
           </div>
@@ -280,19 +280,26 @@ function updateLoadingMessage(message) {
   // 현재 단계 활성화
   currentStep++
   const steps = document.querySelectorAll('.progress-step')
+  
+  // 단계별 상태 업데이트
   steps.forEach((step, idx) => {
     if (idx < currentStep) {
+      // 이전 단계: 완료 표시
       step.classList.add('completed')
       step.classList.remove('active')
     } else if (idx === currentStep) {
+      // 현재 단계: 활성화
       step.classList.add('active')
+      step.classList.remove('completed')
     } else {
+      // 이후 단계: 비활성
       step.classList.remove('active', 'completed')
     }
   })
   
-  // 진행률 업데이트
-  const progress = Math.round((currentStep / totalSteps) * 100)
+  // 진행률 업데이트 (0%부터 100%까지)
+  // currentStep: 0~6 (7단계), totalSteps: 6이므로 최대 100% 도달 가능
+  const progress = Math.min(100, Math.round(((currentStep + 1) / (totalSteps + 1)) * 100))
   if (progressBarFill) {
     progressBarFill.style.width = `${progress}%`
   }
