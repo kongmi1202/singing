@@ -34,7 +34,7 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           <ul style="font-size:13px;line-height:1.6;">
             <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
             <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
-            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±75 Cent 초과) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±100 Cent 초과, 반음을 완전히 틀림) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
             <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 해당 <strong>마디 전체</strong>의 정답 멜로디와 내 노래가 <strong>동시에 재생</strong>됩니다. Pre-Attack(준비 구간)을 포함하여 자연스럽게 비교할 수 있습니다!</li>
           </ul>
         </div>
@@ -83,15 +83,22 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       arr.push({ x: x0, y: bar.midi }, { x: x1, y: bar.midi }, { x: null, y: null })
     }
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
-    // ✅ 사용자 막대 렌더링: isCorrect=true인 경우 백엔드에서 이미 정답과 일치시켜 저장됨
-    // 따라서 프론트엔드는 그대로 렌더링만 하면 시각적 일치가 자동 보장됨
+    // ✅ 사용자 막대 렌더링: 백엔드에서 분리 보정된 값을 그대로 렌더링
+    // Y축(midi): isPitchCorrectOnly=true이면 정답과 일치
+    // X축(x0, x1): isCorrect=true이면 정답과 일치
     noteView?.barsUser?.forEach((b, idx)=>{ 
       if (b.midi!=null) {
-        // 디버그: 정답과 일치 여부 확인
-        if (b.isCorrect && noteView?.barsRef?.[idx]) {
+        // 디버그: 분리된 정답 플래그별 시각적 일치 확인
+        if (noteView?.barsRef?.[idx]) {
           const ref = noteView.barsRef[idx]
-          const match = (Math.abs(b.x0 - ref.x0) < 0.01 && Math.abs(b.x1 - ref.x1) < 0.01 && b.midi === ref.midi)
-          if (!match) console.warn('[시각적 불일치]', idx, 'user:', b, 'ref:', ref)
+          // Y축(midi) 체크: isPitchCorrectOnly가 true이면 midi가 일치해야 함
+          if (b.isPitchCorrectOnly && b.midi !== ref.midi) {
+            console.warn('[Y축 불일치] isPitchCorrectOnly=true인데 midi 불일치', idx, 'user:', b.midi, 'ref:', ref.midi)
+          }
+          // X축(x0, x1) 체크: isCorrect가 true이면 x0, x1이 일치해야 함
+          if (b.isCorrect && (Math.abs(b.x0 - ref.x0) >= 0.01 || Math.abs(b.x1 - ref.x1) >= 0.01)) {
+            console.warn('[X축 불일치] isCorrect=true인데 x0/x1 불일치', idx, 'user:', [b.x0, b.x1], 'ref:', [ref.x0, ref.x1])
+          }
         }
         pushLine(linesUser, b)
       }

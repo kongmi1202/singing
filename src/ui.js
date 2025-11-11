@@ -140,10 +140,10 @@ function showAnalysisScreen() {
         throw new Error('오디오 길이가 너무 짧습니다. 1초 이상 녹음해 주세요.')
       }
       
-      updateLoadingMessage('🎵 MIDI 파일에서 정답 데이터를 불러오는 중...')
+      updateLoadingMessage('📁 악보 데이터를 불러오고 있어요! 곧 시작됩니다 ✨')
       const reference = await loadReference(selectedSongId)
       
-      updateLoadingMessage('🎙️ 오디오 파일을 디코딩하는 중...')
+      updateLoadingMessage('🎙️ 멋진 목소리를 디코딩하는 중... 기대되네요! 😊')
       let audioBuffer
       try {
         audioBuffer = await decodeAudioFile(uploadedFile)
@@ -151,19 +151,23 @@ function showAnalysisScreen() {
         throw new Error(`오디오 디코딩 실패: ${e.message || e}. 브라우저가 m4a 코덱을 지원하지 않으면 wav/mp3로 변환해 주세요.`)
       }
       
-      updateLoadingMessage('🎼 음고 분석을 위해 F₀ 데이터를 추출 중...')
+      updateLoadingMessage('🎼 음정을 하나하나 세밀하게 분석 중... 거의 다 왔어요! 🎵')
       const pitchTrack = await analyzePitchTrack(audioBuffer)
       
-      updateLoadingMessage(`🎯 BPM ${reference.tempoBpm}을 확인하고 리듬 오차 범위를 설정 중...`)
+      updateLoadingMessage(`🎯 리듬감을 체크하고 있어요! (BPM ${reference.tempoBpm}) 좋은 느낌이에요 💫`)
       const analysis = await analyzeAgainstReference(reference, pitchTrack)
       
-      updateLoadingMessage('📊 음표별 오류 지점을 비교 분석하는 중...')
+      updateLoadingMessage('📊 어떤 부분을 더 연습하면 좋을지 찾고 있어요! 🔍')
       const noteView = buildNoteComparisons(reference, pitchTrack)
       
-      updateLoadingMessage('✨ 결과 화면을 준비하는 중...')
+      updateLoadingMessage('✨ 결과를 예쁘게 정리하고 있어요... 조금만 더! 🎉')
       renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo })
       
+      // 🎉 최종 완료 단계
+      updateLoadingMessage('🎊 완료되었습니다! 최고예요! 🎊')
+      
       // 🎉 분석 완료 알림
+      await new Promise(r => setTimeout(r, 500)) // 완료 메시지 표시 시간
       hideLoadingOverlay()
       showCompletionNotification(analysis.verdict, studentInfo.name)
       
@@ -186,22 +190,72 @@ function updateAnalyzeEnabled() {
 }
 
 // 🎨 로딩 오버레이 함수들
+let currentStep = 0
+const totalSteps = 6
+
 function showLoadingOverlay() {
+  currentStep = 0
   const overlay = document.createElement('div')
   overlay.id = 'loadingOverlay'
   overlay.innerHTML = `
     <div class="loading-content">
-      <div class="spinner"></div>
-      <h2>🎵 AI가 노래를 분석하고 있습니다</h2>
-      <p id="loadingMessage">분석을 시작합니다...</p>
-      <div class="loading-bar">
-        <div class="loading-bar-fill"></div>
+      <!-- AI 코치 캐릭터 -->
+      <div class="ai-coach-character">
+        <div class="coach-avatar">
+          <div class="music-note note-1">♪</div>
+          <div class="music-note note-2">♫</div>
+          <div class="coach-face">🎤</div>
+          <div class="music-note note-3">♬</div>
+        </div>
       </div>
-      <div style="margin-top:15px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid #646cff;">
+      
+      <!-- 말풍선 메시지 -->
+      <div class="speech-bubble">
+        <p id="loadingMessage">와! 멋진 노래네요! 지금부터 꼼꼼하게 분석해 드릴게요 🎶</p>
+      </div>
+      
+      <h2 style="margin:20px 0 10px 0;font-size:22px;">🎵 AI가 노래를 분석하고 있습니다</h2>
+      
+      <!-- 다단계 진행 상태 바 -->
+      <div class="progress-container">
+        <div class="progress-steps">
+          <div class="progress-step active" data-step="0">
+            <div class="step-circle">📁</div>
+            <div class="step-label">MIDI 로드</div>
+          </div>
+          <div class="progress-step" data-step="1">
+            <div class="step-circle">🎙️</div>
+            <div class="step-label">디코딩</div>
+          </div>
+          <div class="progress-step" data-step="2">
+            <div class="step-circle">🎼</div>
+            <div class="step-label">음고 추출</div>
+          </div>
+          <div class="progress-step" data-step="3">
+            <div class="step-circle">🎯</div>
+            <div class="step-label">리듬 분석</div>
+          </div>
+          <div class="progress-step" data-step="4">
+            <div class="step-circle">📊</div>
+            <div class="step-label">오류 검출</div>
+          </div>
+          <div class="progress-step" data-step="5">
+            <div class="step-circle">✨</div>
+            <div class="step-label">완료</div>
+          </div>
+        </div>
+        <div class="progress-bar-wrapper">
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progressBarFill"></div>
+          </div>
+          <div class="progress-percentage" id="progressPercentage">0%</div>
+        </div>
+      </div>
+      
+      <div style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid #646cff;">
         <p style="margin:0;font-size:14px;opacity:0.9;">⏱️ <strong>분석에는 1~2분 정도 소요됩니다</strong></p>
         <p style="margin:5px 0 0 0;font-size:13px;opacity:0.7;">음고, 리듬, 음표별 오류를 세밀하게 분석하는 중입니다. 조금만 기다려 주세요!</p>
       </div>
-      <small style="opacity:0.7;margin-top:10px;">잠시만 기다려 주세요 ☕</small>
     </div>
   `
   document.body.appendChild(overlay)
@@ -212,12 +266,38 @@ function showLoadingOverlay() {
 
 function updateLoadingMessage(message) {
   const messageEl = document.getElementById('loadingMessage')
+  const progressBarFill = document.getElementById('progressBarFill')
+  const progressPercentage = document.getElementById('progressPercentage')
+  
   if (messageEl) {
     messageEl.style.opacity = '0'
     setTimeout(() => {
       messageEl.textContent = message
       messageEl.style.opacity = '1'
     }, 150)
+  }
+  
+  // 현재 단계 활성화
+  currentStep++
+  const steps = document.querySelectorAll('.progress-step')
+  steps.forEach((step, idx) => {
+    if (idx < currentStep) {
+      step.classList.add('completed')
+      step.classList.remove('active')
+    } else if (idx === currentStep) {
+      step.classList.add('active')
+    } else {
+      step.classList.remove('active', 'completed')
+    }
+  })
+  
+  // 진행률 업데이트
+  const progress = Math.round((currentStep / totalSteps) * 100)
+  if (progressBarFill) {
+    progressBarFill.style.width = `${progress}%`
+  }
+  if (progressPercentage) {
+    progressPercentage.textContent = `${progress}%`
   }
 }
 

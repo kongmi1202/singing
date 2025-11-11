@@ -24,7 +24,7 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
   const userMidi = []
   const incorrectMask = []
 
-  const pitchToleranceSemis = 0.75 // within ±75 cents OK (교육적 허용 범위 확장)
+  const pitchToleranceSemis = 1.0 // within ±100 cents OK (반음 경계선까지 허용)
   for (let b = 0; b <= maxBeat; b += beatStep) {
     beats.push(b)
     const refPoint = refByBeat.find(p => Math.abs(p.beat - b) < beatStep / 2)
@@ -188,9 +188,9 @@ export function buildNoteComparisons(reference, pitchTrack) {
     return 69 + 12 * Math.log2(f / 440)
   }
 
-  // 🎯 교육적 허용 범위 확장: 자연스러운 표현을 허용하면서 심각한 오류만 감지
-  const tolCents = 75 // ±75 Cent: 반음(100 Cent)의 3/4, 비브라토 등 자연스러운 떨림 허용
-  const tolPitch = tolCents / 100 // 0.75 semitones
+  // 🎯 교육적 허용 범위 극대화: 반음 경계선까지 관대하게 허용
+  const tolCents = 100 // ±100 Cent: 반음 경계선까지 허용, 반음을 완전히 틀렸을 때만 오류
+  const tolPitch = tolCents / 100 // 1.0 semitones
   
   // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 길이의 150% (R=1.5)
   const bpm = reference.tempoBpm || 120
@@ -276,25 +276,36 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const endDiff = uEnd - end
     
     // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (음표 시작점만)
-    // 음고: 중앙 60% 구간 F0 중앙값이 ±75 Cent 초과
+    // 음고: 중앙 60% 구간 F0 중앙값이 ±100 Cent 초과 (반음 경계선 초과)
     // 리듬: 음표 시작점 오차가 Δt (16분음표 길이, R=1.5) 초과
     //       ※ 종료 시점/길이 오차는 X표시 기준에서 제외 (교육적 동기 부여)
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
     const isRhythmError = (Math.abs(startDiff) > tolBeats) // 시작점만 체크
     
-    // ✅ 통합 정답 플래그: 음고와 리듬 모두 통과했을 때만 true
+    // ✅ 음고 정답 플래그 (리듬과 독립적): 음고만 맞았는지 판단 (Y축 시각화용)
+    const isPitchCorrectOnly = !isPitchError && uMidi != null
+    
+    // ✅ 통합 정답 플래그: 음고와 리듬 모두 통과했을 때만 true (X표 기준)
     const isCorrect = !isPitchError && !isRhythmError && uMidi != null
     
     if (isPitchError || isRhythmError) {
       result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
     }
     
-    // 🎨 시각적 일치 보정: 정답이면 막대를 정답과 완벽히 일치시켜 저장
-    if (isCorrect) {
-      result.barsUser.push({ x0: start, x1: end, midi: n.midi, isCorrect: true })
-    } else {
-      result.barsUser.push({ x0: uStart, x1: uEnd, midi: uMidi, isCorrect: false })
-    }
+    // 🎨 시각적 일치 보정 (분리 적용)
+    // Y축(midi): isPitchCorrectOnly가 true이면 정답과 일치 (음고 보정)
+    // X축(x0, x1): isCorrect가 true이면 정답과 일치 (리듬 포함 통합 보정)
+    const displayMidi = isPitchCorrectOnly ? n.midi : uMidi
+    const displayX0 = isCorrect ? start : uStart
+    const displayX1 = isCorrect ? end : uEnd
+    
+    result.barsUser.push({ 
+      x0: displayX0, 
+      x1: displayX1, 
+      midi: displayMidi, 
+      isCorrect: isCorrect,
+      isPitchCorrectOnly: isPitchCorrectOnly 
+    })
   }
 
   return result
