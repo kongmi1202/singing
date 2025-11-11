@@ -192,10 +192,10 @@ export function buildNoteComparisons(reference, pitchTrack) {
   const tolCents = 100 // ±100 Cent: 반음 경계선까지 허용, 반음을 완전히 틀렸을 때만 오류
   const tolPitch = tolCents / 100 // 1.0 semitones
   
-  // 🎵 BPM 기반 동적 리듬 오차 계산: 16분음표 길이의 150% (R=1.5)
+  // 🎵 BPM 기반 동적 리듬 오차 계산: 8분음표 길이 (자연스러운 연주 허용)
   const bpm = reference.tempoBpm || 120
-  const sixteenthNoteDuration = 60000 / (bpm * 4) // 16분음표 길이 (ms)
-  const tolMs = sixteenthNoteDuration * 1.5 // 동적 허용 범위 (R=1.5, 심각한 오류만 선별)
+  const eighthNoteDuration = 60000 / (bpm * 2) // 8분음표 길이 (ms)
+  const tolMs = eighthNoteDuration // 8분음표 1개 = 심각한 리듬 오류만 감지
   const tolBeats = (tolMs / 1000) * (bpm / 60)
 
   for (const n of reference.notes) {
@@ -228,7 +228,7 @@ export function buildNoteComparisons(reference, pitchTrack) {
     let uStart = null, uEnd = null
     
     // 안정적 진동 시작점 찾기: 연속된 유효 F0 + 값의 안정성(변동 ≤1.0 semitone)
-    const stabilityThreshold = 4 // 연속 프레임 개수 (약 0.2초 @ 50fps)
+    const stabilityThreshold = 2 // 연속 프레임 개수 (약 0.1초, 자연스러운 시작점 감지)
     const pitchStabilityTol = 1.0 // 반음 이내 변동만 안정으로 간주
     const recentPitches = []
     
@@ -277,13 +277,16 @@ export function buildNoteComparisons(reference, pitchTrack) {
     
     // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (음표 시작점만)
     // 음고: 중앙 60% 구간 F0 중앙값이 ±100 Cent 초과 (반음 경계선 초과)
-    // 리듬: 음표 시작점 오차가 Δt (16분음표 길이, R=1.5) 초과
+    // 리듬: 음표 시작점 오차가 8분음표 길이 초과 (자연스러운 연주 변화 허용)
     //       ※ 종료 시점/길이 오차는 X표시 기준에서 제외 (교육적 동기 부여)
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
     const isRhythmError = (Math.abs(startDiff) > tolBeats) // 시작점만 체크
     
     // ✅ 음고 정답 플래그 (리듬과 독립적): 음고만 맞았는지 판단 (Y축 시각화용)
     const isPitchCorrectOnly = !isPitchError && uMidi != null
+    
+    // ✅ 리듬 정답 플래그 (음고와 독립적): 리듬만 맞았는지 판단 (X축 시각화용)
+    const isRhythmCorrectOnly = !isRhythmError && uMidi != null
     
     // ✅ 통합 정답 플래그: 음고와 리듬 모두 통과했을 때만 true (X표 기준)
     const isCorrect = !isPitchError && !isRhythmError && uMidi != null
@@ -292,19 +295,21 @@ export function buildNoteComparisons(reference, pitchTrack) {
       result.issues.push({ beat: start, midi: n.midi, pitchDiff, startDiff, endDiff })
     }
     
-    // 🎨 시각적 일치 보정 (분리 적용)
-    // Y축(midi): isPitchCorrectOnly가 true이면 정답과 일치 (음고 보정)
-    // X축(x0, x1): isCorrect가 true이면 정답과 일치 (리듬 포함 통합 보정)
+    // 🎨 시각적 일치 보정 (완전 분리 적용)
+    // Y축(midi): 음고가 맞으면(isPitchCorrectOnly) 정답과 일치
+    // X축(x0, x1): 리듬이 맞으면(isRhythmCorrectOnly) 정답과 일치
+    // → 한 쪽만 오류여도 맞은 쪽은 시각적으로 정답과 일치시켜 명확한 피드백 제공
     const displayMidi = isPitchCorrectOnly ? n.midi : uMidi
-    const displayX0 = isCorrect ? start : uStart
-    const displayX1 = isCorrect ? end : uEnd
+    const displayX0 = isRhythmCorrectOnly ? start : uStart
+    const displayX1 = isRhythmCorrectOnly ? end : uEnd
     
     result.barsUser.push({ 
       x0: displayX0, 
       x1: displayX1, 
       midi: displayMidi, 
       isCorrect: isCorrect,
-      isPitchCorrectOnly: isPitchCorrectOnly 
+      isPitchCorrectOnly: isPitchCorrectOnly,
+      isRhythmCorrectOnly: isRhythmCorrectOnly
     })
   }
 

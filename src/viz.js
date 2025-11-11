@@ -83,21 +83,21 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       arr.push({ x: x0, y: bar.midi }, { x: x1, y: bar.midi }, { x: null, y: null })
     }
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
-    // ✅ 사용자 막대 렌더링: 백엔드에서 분리 보정된 값을 그대로 렌더링
+    // ✅ 사용자 막대 렌더링: 백엔드에서 완전 분리 보정된 값을 그대로 렌더링
     // Y축(midi): isPitchCorrectOnly=true이면 정답과 일치
-    // X축(x0, x1): isCorrect=true이면 정답과 일치
+    // X축(x0, x1): isRhythmCorrectOnly=true이면 정답과 일치
     noteView?.barsUser?.forEach((b, idx)=>{ 
       if (b.midi!=null) {
-        // 디버그: 분리된 정답 플래그별 시각적 일치 확인
+        // 디버그: 완전 분리된 정답 플래그별 시각적 일치 확인
         if (noteView?.barsRef?.[idx]) {
           const ref = noteView.barsRef[idx]
           // Y축(midi) 체크: isPitchCorrectOnly가 true이면 midi가 일치해야 함
           if (b.isPitchCorrectOnly && b.midi !== ref.midi) {
             console.warn('[Y축 불일치] isPitchCorrectOnly=true인데 midi 불일치', idx, 'user:', b.midi, 'ref:', ref.midi)
           }
-          // X축(x0, x1) 체크: isCorrect가 true이면 x0, x1이 일치해야 함
-          if (b.isCorrect && (Math.abs(b.x0 - ref.x0) >= 0.01 || Math.abs(b.x1 - ref.x1) >= 0.01)) {
-            console.warn('[X축 불일치] isCorrect=true인데 x0/x1 불일치', idx, 'user:', [b.x0, b.x1], 'ref:', [ref.x0, ref.x1])
+          // X축(x0, x1) 체크: isRhythmCorrectOnly가 true이면 x0, x1이 일치해야 함
+          if (b.isRhythmCorrectOnly && (Math.abs(b.x0 - ref.x0) >= 0.01 || Math.abs(b.x1 - ref.x1) >= 0.01)) {
+            console.warn('[X축 불일치] isRhythmCorrectOnly=true인데 x0/x1 불일치', idx, 'user:', [b.x0, b.x1], 'ref:', [ref.x0, ref.x1])
           }
         }
         pushLine(linesUser, b)
@@ -113,8 +113,8 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         // 🎯 오류 레이블 표시: 음고 및 리듬(시작점만) 오류 표시
         const parts = []
         const tempo = reference.tempoBpm || 120
-        const sixteenthNoteDuration = 60000 / (tempo * 4)
-        const tolMs = sixteenthNoteDuration * 1.5 // R=1.5: 16분음표 길이의 150%
+        const eighthNoteDuration = 60000 / (tempo * 2)
+        const tolMs = eighthNoteDuration // 8분음표 길이
         
         // 음고 오류 체크
         if (iss.pitchDiff != null){
