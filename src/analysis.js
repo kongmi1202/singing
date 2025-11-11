@@ -277,18 +277,18 @@ export function buildNoteComparisons(reference, pitchTrack) {
     const nextNote = reference.notes[reference.notes.indexOf(n) + 1]
     const endSearchEnd = nextNote ? nextNote.startBeat + nextNote.durationBeats + 0.5 : end + 1.0
     
-    // 1) 현재 MIDI 끝 이후 첫 번째 onset 찾기 (다음 음절 시작 = 현재 음절 끝)
+    // 1) 현재 감지된 시작점 이후 첫 번째 onset 찾기 (다음 음절 시작 = 현재 음절 끝)
     if (pitchTrack.onsets) {
       const nextOnsets = pitchTrack.onsets.filter(t => {
         const b = (t - offsetBeats * secondsPerBeat) / secondsPerBeat
-        return b > start + 0.2 && b <= endSearchEnd // 현재 시작점 이후 onset
+        return b > uStart + 0.15 && b <= endSearchEnd // 실제 시작점(uStart) 이후 onset
       }).sort((a, b) => a - b)
       
       if (nextOnsets.length > 0) {
         const nextOnset = nextOnsets[0]
         const nextOnsetBeat = (nextOnset - offsetBeats * secondsPerBeat) / secondsPerBeat
         uEnd = nextOnsetBeat - 0.05 // onset 직전까지
-        console.log(`  🎵 다음 Onset ${nextOnsetBeat.toFixed(2)}박 → 종료: ${uEnd.toFixed(2)}박`)
+        console.log(`  🎵 다음 Onset ${nextOnsetBeat.toFixed(2)}박 → 종료: ${uEnd.toFixed(2)}박 (시작: ${uStart.toFixed(2)}박 이후 탐색)`)
       }
     }
     
