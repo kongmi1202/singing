@@ -114,16 +114,19 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           }
         }
         
-        // 리듬 오류 체크 (시작점 + 길이)
+        // 리듬 오류 체크 (시작점 + 길이) - 퍼센트 기반 피드백
         // 시작점 오류
-        if (iss.isRhythmStartError) {
-          const startMs = Math.abs(iss.startDiff) * (60000 / tempo)
-          parts.push(`시작: ${iss.startDiff > 0 ? '늦게' : '빠르게'} (${startMs.toFixed(0)}ms)`)
+        if (iss.isRhythmStartError && iss.expectedDuration) {
+          // 정답 길이 대비 시작점 오차 퍼센트
+          const startErrorPercent = Math.round((Math.abs(iss.startDiff) / iss.expectedDuration) * 100)
+          parts.push(`시작: ${iss.startDiff > 0 ? '늦게' : '빠르게'} (정답 대비 ${startErrorPercent}%)`)
         }
         // 길이 오류
-        if (iss.isRhythmDurationError) {
-          const durationMs = Math.abs(iss.durationDiff) * (60000 / tempo)
-          parts.push(`길이: ${iss.durationDiff > 0 ? '길게' : '짧게'} (${durationMs.toFixed(0)}ms)`)
+        if (iss.isRhythmDurationError && iss.expectedDuration) {
+          // 정답 길이 대비 실제 길이 오차 퍼센트
+          const durationErrorPercent = Math.round((Math.abs(iss.durationDiff) / iss.expectedDuration) * 100)
+          const direction = iss.durationDiff > 0 ? '길게' : '짧게'
+          parts.push(`길이: 정답보다 ${durationErrorPercent}% ${direction}`)
         }
         
         if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })
@@ -401,7 +404,11 @@ async function playAB(reference, audioUrl, beat) {
     
     // Visual feedback (마디 전체 + pre-attack)
     highlightErrorBar(measureStart, durWithPreAttack * 1000)
-    startPlaybackPointer(measureStart, durWithPreAttack, tempo)
+    // 🎯 재생선: pre-attack 구간을 고려하여 실제 오디오 재생 시작점과 동기화
+    // 그래프는 이미 offsetBeats가 적용된 좌표계이므로 measureStart가 실제 노래 시작과 일치
+    const playheadStartBeat = measureStart - (preAttackSeconds / secondsPerBeat)
+    console.log('[playAB] playhead: start beat:', playheadStartBeat, 'duration:', durWithPreAttack, 'sec')
+    startPlaybackPointer(playheadStartBeat, durWithPreAttack, tempo)
     highlightLyrics(measureStart, durWithPreAttack * 1000)
     
     // Create fresh audio element each time
@@ -499,15 +506,21 @@ function startPlaybackPointer(beat, durationSec, tempo) {
   }
   const xScale = globalChart.scales.x
   pointer.style.opacity = '0.8'
+  
+  // 🎯 재생선 시작/종료 위치 계산
   const startX = xScale.getPixelForValue(beat)
   const endBeat = beat + durationSec * tempo / 60
   const endX = xScale.getPixelForValue(endBeat)
   const deltaX = endX - startX
-  const steps = 30
+  
+  // 🎯 부드러운 애니메이션 (60fps 기준)
+  const steps = Math.max(30, Math.floor(durationSec * 30)) // 최소 30 스텝
   const interval = (durationSec * 1000) / steps
   let step = 0
   pointer.style.left = `${startX}px`
-  console.log('[playbackPointer] start:', startX, 'end:', endX)
+  
+  console.log('[playbackPointer] beat:', beat, '→', endBeat, '| pixels:', startX, '→', endX, '| duration:', durationSec, 's')
+  
   playbackAnimation = setInterval(() => {
     step++
     const x = startX + (deltaX * step / steps)

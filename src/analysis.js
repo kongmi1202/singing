@@ -323,6 +323,8 @@ export function buildNoteComparisons(reference, pitchTrack) {
         startDiff, 
         endDiff,
         durationDiff: durationDiff,
+        expectedDuration: expectedDuration, // 정답 길이 (퍼센트 계산용)
+        actualDuration: actualDuration, // 실제 길이 (퍼센트 계산용)
         isRhythmStartError,
         isRhythmDurationError
       })
