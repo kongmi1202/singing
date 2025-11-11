@@ -87,7 +87,39 @@ export async function analyzePitchTrack(audioBuffer) {
   // 🎯 RMS 배열 추가 (음절 경계 감지용)
   const rmsArray = confidence.map(c => c / 10) // 원래 RMS 값 복원
   
-  return { sampleRate, frameSize, hopSize, times, f0, confidence, rms: rmsArray }
+  // 🎵 Onset Detection: 에너지 변화 기반 음절 경계 감지
+  const onsets = detectOnsets(rmsArray, times)
+  
+  return { sampleRate, frameSize, hopSize, times, f0, confidence, rms: rmsArray, onsets }
 }
 
+// 🎵 Onset Detection: 에너지 변화 기반 음절/음표 경계 감지
+function detectOnsets(rms, times) {
+  const onsets = []
+  
+  // 1차 미분: 에너지 변화율 계산
+  const delta = []
+  for (let i = 1; i < rms.length; i++) {
+    delta.push(rms[i] - rms[i - 1])
+  }
+  
+  // 피크 찾기: 에너지가 급격히 증가하는 지점 (새로운 음절 시작)
+  const threshold = 0.005 // RMS 변화 임계값
+  const minGap = 0.1 // 최소 onset 간격 (초)
+  
+  for (let i = 2; i < delta.length - 2; i++) {
+    // 급격한 증가 감지
+    if (delta[i] > threshold && delta[i] > delta[i - 1] && delta[i] > delta[i + 1]) {
+      const t = times[i]
+      
+      // 너무 가까운 onset 제거
+      if (onsets.length === 0 || t - onsets[onsets.length - 1] > minGap) {
+        onsets.push(t)
+      }
+    }
+  }
+  
+  console.log(`[Onset Detection] ${onsets.length}개 onset 감지:`, onsets.slice(0, 10).map(t => t.toFixed(2)))
+  return onsets
+}
 

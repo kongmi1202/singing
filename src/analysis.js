@@ -238,26 +238,71 @@ export function buildNoteComparisons(reference, pitchTrack) {
       // 🧠 중앙값(Median) 사용: 순간적 스파이크나 노이즈의 영향 최소화
       uMidi = samples[Math.floor(samples.length / 2)]
     }
-    // 🎯 리듬 판정: 단순 접근 - MIDI 경계 기준
-    // 현실적 한계 인정: 레가토로 같은 음을 연속으로 부르면 발음 경계 감지 불가능
-    // 해결: MIDI 음표 경계를 기준으로 사용하고 작은 오차만 허용
+    // 🎯 리듬 판정: Onset Detection 기반 음절 경계 감지
     let uStart = start, uEnd = end
     
-    // 시작점: MIDI ±0.25박 범위에서 실제 F0 찾기
-    for (let b = start - 0.25; b <= start + 0.25; b += step) {
-      const u = sampleUserAtBeat(b)
-      if (u != null && Math.abs(u - n.midi) <= 1.5) {
-        uStart = b
-        break
+    // 🎵 시작점: MIDI 근처의 onset 또는 F0 시작점
+    const startSearchStart = start - 0.4
+    const startSearchEnd = start + 0.4
+    
+    // 1) 먼저 onset 찾기 (에너지 변화 급증 = 새 음절 시작)
+    if (pitchTrack.onsets) {
+      const onsetsInRange = pitchTrack.onsets.filter(t => {
+        const b = (t - offsetBeats * secondsPerBeat) / secondsPerBeat
+        return b >= startSearchStart && b <= startSearchEnd
+      })
+      if (onsetsInRange.length > 0) {
+        const closestOnset = onsetsInRange.reduce((prev, curr) => {
+          const prevDiff = Math.abs((prev - offsetBeats * secondsPerBeat) / secondsPerBeat - start)
+          const currDiff = Math.abs((curr - offsetBeats * secondsPerBeat) / secondsPerBeat - start)
+          return currDiff < prevDiff ? curr : prev
+        })
+        uStart = (closestOnset - offsetBeats * secondsPerBeat) / secondsPerBeat
+        console.log(`  🎵 Onset 시작점: ${uStart.toFixed(2)}박`)
       }
     }
     
-    // 종료점: MIDI ±0.25박 범위에서 실제 F0 찾기
-    for (let b = end + 0.25; b >= end - 0.25; b -= step) {
-      const u = sampleUserAtBeat(b)
-      if (u != null && Math.abs(u - n.midi) <= 1.5) {
-        uEnd = b
-        break
+    // 2) onset 없으면 F0 기반 찾기
+    if (uStart === start) {
+      for (let b = startSearchStart; b <= startSearchEnd; b += step) {
+        const u = sampleUserAtBeat(b)
+        if (u != null && Math.abs(u - n.midi) <= 1.5) {
+          uStart = b
+          break
+        }
+      }
+    }
+    
+    // 🎵 종료점: 다음 onset 직전 또는 실제 F0 끝
+    const nextNote = reference.notes[reference.notes.indexOf(n) + 1]
+    const endSearchEnd = nextNote ? nextNote.startBeat + nextNote.durationBeats + 0.5 : end + 1.0
+    
+    // 1) 현재 MIDI 끝 이후 첫 번째 onset 찾기 (다음 음절 시작 = 현재 음절 끝)
+    if (pitchTrack.onsets) {
+      const nextOnsets = pitchTrack.onsets.filter(t => {
+        const b = (t - offsetBeats * secondsPerBeat) / secondsPerBeat
+        return b > start + 0.2 && b <= endSearchEnd // 현재 시작점 이후 onset
+      }).sort((a, b) => a - b)
+      
+      if (nextOnsets.length > 0) {
+        const nextOnset = nextOnsets[0]
+        const nextOnsetBeat = (nextOnset - offsetBeats * secondsPerBeat) / secondsPerBeat
+        uEnd = nextOnsetBeat - 0.05 // onset 직전까지
+        console.log(`  🎵 다음 Onset ${nextOnsetBeat.toFixed(2)}박 → 종료: ${uEnd.toFixed(2)}박`)
+      }
+    }
+    
+    // 2) onset 없으면 F0 기반 찾기 (±0.3박)
+    if (uEnd === end) {
+      const endSearchStart = end - 0.3
+      const maxEnd = nextNote ? Math.min(end + 0.3, nextNote.startBeat - 0.05) : end + 0.3
+      
+      for (let b = maxEnd; b >= endSearchStart; b -= step) {
+        const u = sampleUserAtBeat(b)
+        if (u != null && Math.abs(u - n.midi) <= 1.5) {
+          uEnd = b
+          break
+        }
       }
     }
 
