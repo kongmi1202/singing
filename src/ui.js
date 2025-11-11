@@ -6,7 +6,7 @@ import { renderResults } from './viz.js'
 let selectedSongId = null
 let uploadedFile = null
 let audioUrl = null
-let studentInfo = { id: '', name: '' }
+let studentInfo = { id: '학생', name: '분석 결과' } // 기본값
 
 export function initUI() {
   showStudentInfoScreen()
@@ -16,7 +16,7 @@ function showStudentInfoScreen() {
   const app = document.querySelector('#app')
   app.innerHTML = `
     <div class="container" style="max-width:500px;margin:0 auto;">
-      <h1>🎵 AI 가창 분석 코치</h1>
+      <h1>🎵 AI 노래 분석</h1>
       <div style="text-align:center;margin-bottom:30px;opacity:0.8;">
         <p>노래 실력을 AI가 분석하고 피드백을 제공합니다</p>
       </div>
@@ -214,6 +214,11 @@ function showLoadingOverlay() {
         <p id="loadingMessage">와! 멋진 노래네요! 지금부터 꼼꼼하게 분석해 드릴게요 🎶</p>
       </div>
       
+      <!-- 재미있는 팁 메시지 (순환) -->
+      <div id="loadingTips" style="margin-top:15px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;min-height:60px;transition:opacity 0.5s;">
+        <p style="margin:0;font-size:14px;text-align:center;opacity:0.9;">💡 분석이 진행되는 동안 잠시만 기다려 주세요...</p>
+      </div>
+      
       <h2 style="margin:20px 0 10px 0;font-size:22px;">🎵 AI가 노래를 분석하고 있습니다</h2>
       
       <!-- 다단계 진행 상태 바 -->
@@ -262,6 +267,44 @@ function showLoadingOverlay() {
   
   // 애니메이션 시작
   setTimeout(() => overlay.classList.add('show'), 10)
+  
+  // 🎯 재미있는 팁 순환 애니메이션 시작
+  startTipsRotation()
+}
+
+// 🎨 재미있는 팁 순환 애니메이션
+let tipsInterval = null
+const funTips = [
+  '🎵 AI가 여러분의 목소리를 하나하나 분석하고 있어요!',
+  '🎼 음정과 리듬을 세밀하게 체크하는 중입니다...',
+  '✨ 완벽하지 않아도 괜찮아요! 연습이 실력을 만듭니다 💪',
+  '🎤 좋은 노래는 감정이 담겨있는 노래랍니다!',
+  '🎶 호흡을 잘 조절하면 더 안정적인 소리가 나와요!',
+  '🌟 매일 조금씩 연습하면 금방 늘어요!',
+  '🎵 음정보다 리듬이 더 중요할 때도 있답니다!',
+  '💫 거의 다 왔어요! 조금만 더 기다려 주세요!'
+]
+
+function startTipsRotation() {
+  let currentTipIndex = 0
+  const tipsEl = document.getElementById('loadingTips')
+  
+  if (!tipsEl) return
+  
+  tipsInterval = setInterval(() => {
+    currentTipIndex = (currentTipIndex + 1) % funTips.length
+    
+    // 페이드 아웃
+    tipsEl.style.opacity = '0'
+    
+    setTimeout(() => {
+      // 텍스트 변경
+      tipsEl.innerHTML = `<p style="margin:0;font-size:14px;text-align:center;opacity:0.9;">${funTips[currentTipIndex]}</p>`
+      
+      // 페이드 인
+      tipsEl.style.opacity = '1'
+    }, 300)
+  }, 4000) // 4초마다 변경
 }
 
 function updateLoadingMessage(message) {
@@ -309,6 +352,12 @@ function updateLoadingMessage(message) {
 }
 
 function hideLoadingOverlay() {
+  // 팁 순환 애니메이션 중지
+  if (tipsInterval) {
+    clearInterval(tipsInterval)
+    tipsInterval = null
+  }
+  
   const overlay = document.getElementById('loadingOverlay')
   if (overlay) {
     overlay.classList.remove('show')

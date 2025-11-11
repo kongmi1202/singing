@@ -34,7 +34,9 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           <ul style="font-size:13px;line-height:1.6;">
             <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
             <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
-            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: <strong>음고</strong> (±100 Cent 초과, 반음을 완전히 틀림) 또는 <strong>리듬 시작점</strong> (BPM 기반 Δt 초과)이 <strong>허용 범위를 벗어난 심각한 오류 지점</strong>입니다.</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 & 테두리 (오류)</strong>: 
+              <br>• <strong>점선 테두리</strong>: 음고는 맞지만 리듬(시작/길이)이 틀림
+              <br>• <strong>실선 테두리</strong>: 음고가 틀림 (±100 Cent 초과)</li>
             <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 해당 <strong>마디 전체</strong>의 정답 멜로디와 내 노래가 <strong>동시에 재생</strong>됩니다. Pre-Attack(준비 구간)을 포함하여 자연스럽게 비교할 수 있습니다!</li>
           </ul>
         </div>
@@ -83,23 +85,11 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
       arr.push({ x: x0, y: bar.midi }, { x: x1, y: bar.midi }, { x: null, y: null })
     }
     noteView?.barsRef?.forEach(b=>pushLine(linesRef,b))
-    // ✅ 사용자 막대 렌더링: 백엔드에서 완전 분리 보정된 값을 그대로 렌더링
+    // ✅ 사용자 막대 렌더링: 항상 실제 분석된 값 표시
     // Y축(midi): isPitchCorrectOnly=true이면 정답과 일치
-    // X축(x0, x1): isRhythmCorrectOnly=true이면 정답과 일치
+    // X축(x0, x1): 항상 실제 시작/종료 위치 (리듬 오류 시각화)
     noteView?.barsUser?.forEach((b, idx)=>{ 
       if (b.midi!=null) {
-        // 디버그: 완전 분리된 정답 플래그별 시각적 일치 확인
-        if (noteView?.barsRef?.[idx]) {
-          const ref = noteView.barsRef[idx]
-          // Y축(midi) 체크: isPitchCorrectOnly가 true이면 midi가 일치해야 함
-          if (b.isPitchCorrectOnly && b.midi !== ref.midi) {
-            console.warn('[Y축 불일치] isPitchCorrectOnly=true인데 midi 불일치', idx, 'user:', b.midi, 'ref:', ref.midi)
-          }
-          // X축(x0, x1) 체크: isRhythmCorrectOnly가 true이면 x0, x1이 일치해야 함
-          if (b.isRhythmCorrectOnly && (Math.abs(b.x0 - ref.x0) >= 0.01 || Math.abs(b.x1 - ref.x1) >= 0.01)) {
-            console.warn('[X축 불일치] isRhythmCorrectOnly=true인데 x0/x1 불일치', idx, 'user:', [b.x0, b.x1], 'ref:', [ref.x0, ref.x1])
-          }
-        }
         pushLine(linesUser, b)
       }
     })
@@ -161,11 +151,58 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         { label:'오류 (X표시)', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
       ]},
       plugins: [{
-        id: 'lyricsPlugin',
+        id: 'errorBorderPlugin',
         afterDatasetsDraw: (chart) => {
           const ctx = chart.ctx
           const xScale = chart.scales.x
           const yScale = chart.scales.y
+          
+          // 🎯 오류 막대에 빨간색 테두리 그리기
+          noteView?.barsUser?.forEach((bar, idx) => {
+            if (!bar.midi) return
+            if (bar.x1 < windowStart || bar.x0 > windowStart+windowBeats) return
+            
+            const x0 = Math.max(windowStart, bar.x0)
+            const x1 = Math.min(windowStart+windowBeats, bar.x1)
+            if (x1 <= x0) return
+            
+            const x0Pixel = xScale.getPixelForValue(x0)
+            const x1Pixel = xScale.getPixelForValue(x1)
+            const yPixel = yScale.getPixelForValue(bar.midi)
+            
+            // 오류 상태에 따라 테두리 스타일 결정
+            let needsBorder = false
+            let isDashed = false
+            
+            if (!bar.isCorrect) {
+              needsBorder = true
+              // 음고 맞고 리듬만 틀림: 점선
+              if (bar.isPitchCorrectOnly && !bar.isRhythmCorrectOnly) {
+                isDashed = true
+              }
+              // 음고 틀림: 실선 (isDashed = false는 기본값)
+            }
+            
+            if (needsBorder) {
+              ctx.save()
+              ctx.strokeStyle = '#ff4d4f'
+              ctx.lineWidth = 3
+              if (isDashed) {
+                ctx.setLineDash([8, 4])
+              }
+              
+              // 막대 주변에 테두리 그리기 (약간 여유 공간)
+              const padding = 2
+              ctx.strokeRect(
+                x0Pixel,
+                yPixel - padding - 2,
+                x1Pixel - x0Pixel,
+                4 + padding * 2
+              )
+              
+              ctx.restore()
+            }
+          })
           
           // 🎵 각 가사를 해당 음표 막대바 바로 아래에 그리기
           lyricsInWindow.forEach(lyric => {

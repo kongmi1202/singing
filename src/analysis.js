@@ -164,16 +164,32 @@ export function buildNoteComparisons(reference, pitchTrack) {
   const secondsPerBeat = 60 / reference.tempoBpm
   const hopSeconds = pitchTrack.hopSize / pitchTrack.sampleRate
   
-  // Auto-align: detect first voiced frame
+  // 🎯 Auto-align: 첫 유성음 감지 (숨소리/노이즈 제외, 연속된 실제 노래 시작점 탐지)
   let firstVoicedSec = 0
-  for (let i=0;i<pitchTrack.f0.length;i++){
-    if (pitchTrack.f0[i] > 60){
+  const minFreq = 100 // 100Hz 이상 (숨소리/노이즈 제외)
+  const consecutiveFrames = 5 // 연속 5프레임 이상 유지되어야 실제 노래로 인정
+  
+  for (let i = 0; i < pitchTrack.f0.length - consecutiveFrames; i++) {
+    // 연속된 프레임들이 모두 유효한 주파수인지 확인
+    let allValid = true
+    for (let j = 0; j < consecutiveFrames; j++) {
+      if (pitchTrack.f0[i + j] <= minFreq) {
+        allValid = false
+        break
+      }
+    }
+    
+    if (allValid) {
+      // 연속된 유성음의 시작점을 첫 노래 시작으로 간주
       firstVoicedSec = pitchTrack.times[i]
       break
     }
   }
+  
   const firstRefBeat = reference.notes[0]?.startBeat || 0
   const offsetBeats = firstVoicedSec / secondsPerBeat - firstRefBeat
+  
+  console.log('[Auto-align] firstVoicedSec:', firstVoicedSec, 'offsetBeats:', offsetBeats)
   
   // Store offset for playback
   const result = { barsRef: [], barsUser: [], issues: [], offsetBeats }
@@ -312,13 +328,12 @@ export function buildNoteComparisons(reference, pitchTrack) {
       })
     }
     
-    // 🎨 시각적 일치 보정 (완전 분리 적용)
-    // Y축(midi): 음고가 맞으면(isPitchCorrectOnly) 정답과 일치
-    // X축(x0, x1): 리듬이 맞으면(isRhythmCorrectOnly) 정답과 일치
-    // → 한 쪽만 오류여도 맞은 쪽은 시각적으로 정답과 일치시켜 명확한 피드백 제공
+    // 🎨 시각화: 항상 실제 분석된 값을 표시
+    // Y축(midi): 음고가 맞으면 정답 MIDI, 틀리면 실제 MIDI
+    // X축(x0, x1): 항상 실제 시작/종료 시점 (리듬 오류를 명확히 보여주기 위함)
     const displayMidi = isPitchCorrectOnly ? n.midi : uMidi
-    const displayX0 = isRhythmCorrectOnly ? start : uStart
-    const displayX1 = isRhythmCorrectOnly ? end : uEnd
+    const displayX0 = uStart  // 항상 실제 시작 위치
+    const displayX1 = uEnd    // 항상 실제 종료 위치
     
     result.barsUser.push({ 
       x0: displayX0, 
