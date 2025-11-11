@@ -238,58 +238,40 @@ export function buildNoteComparisons(reference, pitchTrack) {
       // 🧠 중앙값(Median) 사용: 순간적 스파이크나 노이즈의 영향 최소화
       uMidi = samples[Math.floor(samples.length / 2)]
     }
-    // 🎯 리듬 판정: 안정적 진동 시작 시점 탐지 (발음 초기 불안정성 제거)
-    // 기존 문제점: 발음 시작의 불안정한 어택(attack) 구간을 리듬 시작점으로 간주
-    // 개선 방법: 연속된 프레임들의 F0가 안정적으로 유지되는 시점을 리듬 시작점으로 사용
-    let uStart = null, uEnd = null
+    // 🎯 리듬 판정: 단순 접근 - MIDI 경계 기준
+    // 현실적 한계 인정: 레가토로 같은 음을 연속으로 부르면 발음 경계 감지 불가능
+    // 해결: MIDI 음표 경계를 기준으로 사용하고 작은 오차만 허용
+    let uStart = start, uEnd = end
     
-    // 안정적 진동 시작점 찾기: 연속된 유효 F0 + 값의 안정성(변동 ≤1.0 semitone)
-    const stabilityThreshold = 2 // 연속 프레임 개수 (약 0.1초, 자연스러운 시작점 감지)
-    const pitchStabilityTol = 1.0 // 반음 이내 변동만 안정으로 간주
-    const recentPitches = []
-    
-    for (let b=start-0.5; b<end+0.5; b+=step){
+    // 시작점: MIDI ±0.25박 범위에서 실제 F0 찾기
+    for (let b = start - 0.25; b <= start + 0.25; b += step) {
       const u = sampleUserAtBeat(b)
-      if (u!=null) {
-        recentPitches.push({ beat: b, midi: u })
-        
-        // 최근 stabilityThreshold개 프레임만 유지 (슬라이딩 윈도우)
-        if (recentPitches.length > stabilityThreshold) {
-          recentPitches.shift()
-        }
-        
-        // 충분한 프레임이 모였고, 모두 안정적인지 확인
-        if (recentPitches.length >= stabilityThreshold && uStart == null) {
-          const pitches = recentPitches.map(p => p.midi)
-          const minP = Math.min(...pitches)
-          const maxP = Math.max(...pitches)
-          const variation = maxP - minP
-          
-          // 🎯 변동이 1.0 semitone 이내면 안정적 진동으로 판단
-          // 이렇게 하면 발음 초기의 피치 불안정성(슬라이드, 글리산도)을 건너뜀
-          if (variation <= pitchStabilityTol) {
-            uStart = recentPitches[0].beat // 안정 구간의 첫 프레임
-            break
-          }
-        }
-      } else {
-        recentPitches.length = 0 // 무성음 만나면 리셋
+      if (u != null && Math.abs(u - n.midi) <= 1.5) {
+        uStart = b
+        break
       }
     }
     
-    // 종료점 찾기 (기존 로직 유지)
-    for (let b=end+0.5; b>start-0.5; b-=step){
+    // 종료점: MIDI ±0.25박 범위에서 실제 F0 찾기
+    for (let b = end + 0.25; b >= end - 0.25; b -= step) {
       const u = sampleUserAtBeat(b)
-      if (u!=null){ uEnd = b; break; }
+      if (u != null && Math.abs(u - n.midi) <= 1.5) {
+        uEnd = b
+        break
+      }
     }
-    
-    // Fallbacks
-    if (uStart==null) uStart = start
-    if (uEnd==null) uEnd = end
 
-    const pitchDiff = (uMidi==null) ? null : (uMidi - n.midi)
+    const pitchDiff = (uMidi == null) ? null : (uMidi - n.midi)
     const startDiff = uStart - start
     const endDiff = uEnd - end
+    const actualDuration = uEnd - uStart
+    const expectedDuration = end - start
+    const durationDiff = actualDuration - expectedDuration
+    
+    // 🔍 디버깅: 음표별 감지 결과 출력
+    const noteName = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][Math.round(n.midi) % 12]
+    const octave = Math.floor(Math.round(n.midi) / 12) - 1
+    console.log(`[음표] ${noteName}${octave} (${start.toFixed(2)}~${end.toFixed(2)}박) → 감지: ${uStart.toFixed(2)}~${uEnd.toFixed(2)}박, 길이차: ${durationDiff.toFixed(2)}박`)
     
     // 🎯 X표시 기준 최종 확정: 음고 오류 OR 리듬 오류 (시작점 + 길이)
     // 음고: 중앙 60% 구간 F0 중앙값이 ±100 Cent 초과 (반음 경계선 초과)
@@ -297,11 +279,6 @@ export function buildNoteComparisons(reference, pitchTrack) {
     //   - 시작점 오차가 16분음표 × 1.3배 초과 (시작이 너무 빠르거나 늦음)
     //   - 또는 길이 오차가 16분음표 × 1.3배 초과 (너무 길거나 짧게 부름)
     const isPitchError = (pitchDiff != null && Math.abs(pitchDiff) > tolPitch)
-    
-    // 리듬 오류: 시작점 오차 OR 길이 오차
-    const actualDuration = uEnd - uStart
-    const expectedDuration = end - start
-    const durationDiff = actualDuration - expectedDuration
     const isRhythmStartError = Math.abs(startDiff) > tolBeats // 시작점 오차
     const isRhythmDurationError = Math.abs(durationDiff) > tolBeats // 길이 오차
     const isRhythmError = isRhythmStartError || isRhythmDurationError
@@ -330,12 +307,12 @@ export function buildNoteComparisons(reference, pitchTrack) {
       })
     }
     
-    // 🎨 시각화: 항상 실제 분석된 값을 표시
+    // 🎨 시각화: 실제 분석값 표시 (오차를 명확히 시각화)
     // Y축(midi): 음고가 맞으면 정답 MIDI, 틀리면 실제 MIDI
-    // X축(x0, x1): 항상 실제 시작/종료 시점 (리듬 오류를 명확히 보여주기 위함)
+    // X축(x0, x1): 실제 시작/종료 위치 (리듬 오차를 명확히 시각화)
     const displayMidi = isPitchCorrectOnly ? n.midi : uMidi
-    const displayX0 = uStart  // 항상 실제 시작 위치
-    const displayX1 = uEnd    // 항상 실제 종료 위치
+    const displayX0 = uStart  // 실제 시작 위치
+    const displayX1 = uEnd    // 실제 종료 위치
     
     result.barsUser.push({ 
       x0: displayX0, 

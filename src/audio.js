@@ -84,7 +84,10 @@ export async function analyzePitchTrack(audioBuffer) {
       await new Promise(resolve => setTimeout(resolve, 0))
     }
   }
-  return { sampleRate, frameSize, hopSize, times, f0, confidence }
+  // 🎯 RMS 배열 추가 (음절 경계 감지용)
+  const rmsArray = confidence.map(c => c / 10) // 원래 RMS 값 복원
+  
+  return { sampleRate, frameSize, hopSize, times, f0, confidence, rms: rmsArray }
 }
 
 

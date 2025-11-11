@@ -34,9 +34,9 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           <ul style="font-size:13px;line-height:1.6;">
             <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: MIDI 파일에서 추출한 <strong>목표 음정</strong>과 <strong>길이</strong>입니다.</li>
             <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정의 <strong>중앙값</strong>과 <strong>길이</strong>를 나타냅니다.</li>
-            <li><strong style="color:#ff4d4f;">빨간색 X표 & 테두리 (오류)</strong>: 
-              <br>• <strong>점선 테두리</strong>: 음고는 맞지만 리듬(시작/길이)이 틀림
-              <br>• <strong>실선 테두리</strong>: 음고가 틀림 (±100 Cent 초과)</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: 
+              <br>• <strong>음고 오류</strong>: ±100 Cent 초과 (반음을 완전히 틀림)
+              <br>• <strong>리듬 오류</strong>: 시작점 또는 길이가 허용 범위 초과</li>
             <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 해당 <strong>마디 전체</strong>의 정답 멜로디와 내 노래가 <strong>동시에 재생</strong>됩니다. Pre-Attack(준비 구간)을 포함하여 자연스럽게 비교할 수 있습니다!</li>
           </ul>
         </div>
@@ -106,27 +106,88 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         const sixteenthNoteDuration = 60000 / (tempo * 4)
         const tolMs = sixteenthNoteDuration * 1.3 // 16분음표 × 1.3배
         
-        // 음고 오류 체크
+        // 🎵 음고 오류 체크 - 음악 용어 기반 피드백
         if (iss.pitchDiff != null){
           const cents = Math.abs(iss.pitchDiff) * 100
-          if (cents > 75) { // 75 Cent 이상은 음고 오류
-            parts.push(iss.pitchDiff > 0 ? `음고: ${cents.toFixed(0)}센트 높음` : `음고: ${cents.toFixed(0)}센트 낮음`)
+          if (cents > 100) { // 100 Cent 이상은 음고 오류
+            const semitones = Math.abs(iss.pitchDiff)
+            const direction = iss.pitchDiff > 0 ? '높음' : '낮음'
+            
+            // 반음 단위로 환산하여 교육적 코칭 메시지 생성
+            if (semitones >= 2.0 * 0.8) {
+              parts.push(`⚠️ 음고: 온음(2반음) 정도 ${direction}! 음정을 크게 틀렸어요`)
+            } else if (semitones >= 1.0 * 0.8) {
+              parts.push(`음고: 반음 정도 ${direction}. 정답 음정에 집중하세요`)
+            } else {
+              parts.push(`음고: 약간 ${direction}`)
+            }
           }
         }
         
-        // 리듬 오류 체크 (시작점 + 길이) - 퍼센트 기반 피드백
-        // 시작점 오류
-        if (iss.isRhythmStartError && iss.expectedDuration) {
-          // 정답 길이 대비 시작점 오차 퍼센트
-          const startErrorPercent = Math.round((Math.abs(iss.startDiff) / iss.expectedDuration) * 100)
-          parts.push(`시작: ${iss.startDiff > 0 ? '늦게' : '빠르게'} (정답 대비 ${startErrorPercent}%)`)
+        // 🎵 리듬 오류 체크 (시작점 + 길이) - 음악 용어 기반 피드백
+        // 오차를 음표 단위로 환산하는 헬퍼 함수
+        const convertToMusicalUnit = (errorBeats) => {
+          const absError = Math.abs(errorBeats)
+          
+          // 음표 단위 정의 (박 기준)
+          const quarter = 1.0      // 4분음표
+          const eighth = 0.5       // 8분음표
+          const sixteenth = 0.25   // 16분음표
+          
+          // 가장 가까운 음표 단위 찾기 (80% 이상 일치하면 해당 단위로 인정)
+          if (absError >= quarter * 0.8) {
+            return '4분음표'
+          } else if (absError >= eighth * 0.8) {
+            return '8분음표'
+          } else if (absError >= sixteenth * 0.8) {
+            return '16분음표'
+          } else {
+            return '약간'
+          }
         }
+        
+        // 정답 음표 찾기 (교육적 피드백용)
+        const refNote = reference.notes.find(n => Math.abs(n.startBeat - iss.beat) < 0.01)
+        const expectedBeats = refNote ? refNote.durationBeats : 1.0
+        
+        // 시작점 오류
+        if (iss.isRhythmStartError) {
+          const unit = convertToMusicalUnit(iss.startDiff)
+          const direction = iss.startDiff > 0 ? '늦게' : '빠르게'
+          
+          // 명령형 코칭 메시지
+          if (unit === '4분음표') {
+            parts.push(`⚠️ 시작: 4분음표만큼 ${direction}! 박자를 정확히 맞춰야 해요`)
+          } else if (unit === '8분음표') {
+            parts.push(`시작: 8분음표 ${direction}. 박자에 집중하세요`)
+          } else if (unit === '16분음표') {
+            parts.push(`시작: 16분음표 ${direction}`)
+          } else {
+            parts.push(`시작: 약간 ${direction}`)
+          }
+        }
+        
         // 길이 오류
-        if (iss.isRhythmDurationError && iss.expectedDuration) {
-          // 정답 길이 대비 실제 길이 오차 퍼센트
-          const durationErrorPercent = Math.round((Math.abs(iss.durationDiff) / iss.expectedDuration) * 100)
+        if (iss.isRhythmDurationError) {
+          const unit = convertToMusicalUnit(iss.durationDiff)
           const direction = iss.durationDiff > 0 ? '길게' : '짧게'
-          parts.push(`길이: 정답보다 ${durationErrorPercent}% ${direction}`)
+          
+          // 정답 박자 표시 (예: "1박", "2박")
+          const expectedBeatsStr = expectedBeats === 1.0 ? '1박' 
+                                 : expectedBeats === 0.5 ? '8분음표(0.5박)'
+                                 : expectedBeats === 2.0 ? '2박'
+                                 : `${expectedBeats.toFixed(1)}박`
+          
+          // 명령형 코칭 메시지
+          if (unit === '4분음표') {
+            parts.push(`⚠️ 길이: 정답보다 4분음표 ${direction} 불렀어요. ${expectedBeatsStr}으로 불러보세요`)
+          } else if (unit === '8분음표') {
+            parts.push(`길이: 정답보다 8분음표 ${direction} 불렀어요. ${expectedBeatsStr}으로 불러야 해요`)
+          } else if (unit === '16분음표') {
+            parts.push(`길이: 정답보다 16분음표 ${direction}. 거의 정확해요!`)
+          } else {
+            parts.push(`길이: 약간 ${direction}`)
+          }
         }
         
         if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })
@@ -154,58 +215,11 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         { label:'오류 (X표시)', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
       ]},
       plugins: [{
-        id: 'errorBorderPlugin',
+        id: 'lyricsPlugin',
         afterDatasetsDraw: (chart) => {
           const ctx = chart.ctx
           const xScale = chart.scales.x
           const yScale = chart.scales.y
-          
-          // 🎯 오류 막대에 빨간색 테두리 그리기
-          noteView?.barsUser?.forEach((bar, idx) => {
-            if (!bar.midi) return
-            if (bar.x1 < windowStart || bar.x0 > windowStart+windowBeats) return
-            
-            const x0 = Math.max(windowStart, bar.x0)
-            const x1 = Math.min(windowStart+windowBeats, bar.x1)
-            if (x1 <= x0) return
-            
-            const x0Pixel = xScale.getPixelForValue(x0)
-            const x1Pixel = xScale.getPixelForValue(x1)
-            const yPixel = yScale.getPixelForValue(bar.midi)
-            
-            // 오류 상태에 따라 테두리 스타일 결정
-            let needsBorder = false
-            let isDashed = false
-            
-            if (!bar.isCorrect) {
-              needsBorder = true
-              // 음고 맞고 리듬만 틀림: 점선
-              if (bar.isPitchCorrectOnly && !bar.isRhythmCorrectOnly) {
-                isDashed = true
-              }
-              // 음고 틀림: 실선 (isDashed = false는 기본값)
-            }
-            
-            if (needsBorder) {
-              ctx.save()
-              ctx.strokeStyle = '#ff4d4f'
-              ctx.lineWidth = 3
-              if (isDashed) {
-                ctx.setLineDash([8, 4])
-              }
-              
-              // 막대 주변에 테두리 그리기 (약간 여유 공간)
-              const padding = 2
-              ctx.strokeRect(
-                x0Pixel,
-                yPixel - padding - 2,
-                x1Pixel - x0Pixel,
-                4 + padding * 2
-              )
-              
-              ctx.restore()
-            }
-          })
           
           // 🎵 각 가사를 해당 음표 막대바 바로 아래에 그리기
           lyricsInWindow.forEach(lyric => {
