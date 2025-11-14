@@ -190,11 +190,8 @@ function updateAnalyzeEnabled() {
 }
 
 // 🎨 로딩 오버레이 함수들
-let currentStep = -1
-const totalSteps = 6
 
 function showLoadingOverlay() {
-  currentStep = -1
   const overlay = document.createElement('div')
   overlay.id = 'loadingOverlay'
   overlay.innerHTML = `
@@ -221,45 +218,13 @@ function showLoadingOverlay() {
       
       <h2 style="margin:20px 0 10px 0;font-size:22px;">🎵 AI가 노래를 분석하고 있습니다</h2>
       
-      <!-- 다단계 진행 상태 바 -->
-      <div class="progress-container">
-        <div class="progress-steps">
-          <div class="progress-step" data-step="0">
-            <div class="step-circle">📁</div>
-            <div class="step-label">MIDI 로드</div>
-          </div>
-          <div class="progress-step" data-step="1">
-            <div class="step-circle">🎙️</div>
-            <div class="step-label">디코딩</div>
-          </div>
-          <div class="progress-step" data-step="2">
-            <div class="step-circle">🎼</div>
-            <div class="step-label">음고 추출</div>
-          </div>
-          <div class="progress-step" data-step="3">
-            <div class="step-circle">🎯</div>
-            <div class="step-label">리듬 분석</div>
-          </div>
-          <div class="progress-step" data-step="4">
-            <div class="step-circle">📊</div>
-            <div class="step-label">오류 검출</div>
-          </div>
-          <div class="progress-step" data-step="5">
-            <div class="step-circle">✨</div>
-            <div class="step-label">완료</div>
-          </div>
-        </div>
-        <div class="progress-bar-wrapper">
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="progressBarFill"></div>
-          </div>
-          <div class="progress-percentage" id="progressPercentage">0%</div>
-        </div>
-      </div>
-      
       <div style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid #646cff;">
         <p style="margin:0;font-size:14px;opacity:0.9;">⏱️ <strong>분석에는 1~2분 정도 소요됩니다</strong></p>
         <p style="margin:5px 0 0 0;font-size:13px;opacity:0.7;">음고, 리듬, 음표별 오류를 세밀하게 분석하는 중입니다. 조금만 기다려 주세요!</p>
+      </div>
+      
+      <div style="margin-top:20px;padding:12px;background:rgba(255,77,77,0.15);border-radius:8px;border-left:3px solid #ff4d4d;">
+        <p style="margin:0;font-size:14px;opacity:0.95;font-weight:500;">⚠️ <strong>분석이 완료될 때까지 이 화면을 닫거나 나가지 마십시오.</strong></p>
       </div>
     </div>
   `
@@ -309,8 +274,6 @@ function startTipsRotation() {
 
 function updateLoadingMessage(message) {
   const messageEl = document.getElementById('loadingMessage')
-  const progressBarFill = document.getElementById('progressBarFill')
-  const progressPercentage = document.getElementById('progressPercentage')
   
   if (messageEl) {
     messageEl.style.opacity = '0'
@@ -318,36 +281,6 @@ function updateLoadingMessage(message) {
       messageEl.textContent = message
       messageEl.style.opacity = '1'
     }, 150)
-  }
-  
-  // 현재 단계 활성화
-  currentStep++
-  const steps = document.querySelectorAll('.progress-step')
-  
-  // 단계별 상태 업데이트
-  steps.forEach((step, idx) => {
-    if (idx < currentStep) {
-      // 이전 단계: 완료 표시
-      step.classList.add('completed')
-      step.classList.remove('active')
-    } else if (idx === currentStep) {
-      // 현재 단계: 활성화
-      step.classList.add('active')
-      step.classList.remove('completed')
-    } else {
-      // 이후 단계: 비활성
-      step.classList.remove('active', 'completed')
-    }
-  })
-  
-  // 진행률 업데이트 (0%부터 100%까지)
-  // currentStep: 0~6 (7단계), totalSteps: 6이므로 최대 100% 도달 가능
-  const progress = Math.min(100, Math.round(((currentStep + 1) / (totalSteps + 1)) * 100))
-  if (progressBarFill) {
-    progressBarFill.style.width = `${progress}%`
-  }
-  if (progressPercentage) {
-    progressPercentage.textContent = `${progress}%`
   }
 }
 

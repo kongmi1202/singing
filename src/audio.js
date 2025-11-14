@@ -104,8 +104,8 @@ function detectOnsets(rms, times) {
   }
   
   // 피크 찾기: 에너지가 급격히 증가하는 지점 (새로운 음절 시작)
-  const threshold = 0.005 // RMS 변화 임계값
-  const minGap = 0.1 // 최소 onset 간격 (초)
+  const threshold = 0.003 // RMS 변화 임계값 (0.005→0.003: 더 민감하게)
+  const minGap = 0.08 // 최소 onset 간격 (0.1→0.08초: 더 촘촘하게)
   
   for (let i = 2; i < delta.length - 2; i++) {
     // 급격한 증가 감지
