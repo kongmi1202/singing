@@ -273,36 +273,69 @@ export function buildNoteComparisons(reference, pitchTrack) {
       }
     }
     
-    // 🎵 종료점: 다음 onset 직전 또는 실제 F0 끝
+    // 🎵 종료점: 다음 onset 직전 또는 실제 F0 끝 (같은 음정 연속 구간 고려)
     const nextNote = reference.notes[reference.notes.indexOf(n) + 1]
     const endSearchEnd = nextNote ? nextNote.startBeat + nextNote.durationBeats + 0.5 : end + 1.0
     
-    // 1) 현재 감지된 시작점 이후 첫 번째 onset 찾기 (다음 음절 시작 = 현재 음절 끝)
+    // 같은 음정이 연속되는지 확인
+    const isSamePitchAsNext = nextNote && Math.abs(nextNote.midi - n.midi) < 0.5
+    
+    // 1) 현재 감지된 시작점 이후 첫 번째 onset 찾기
+    // 같은 음정이 연속될 때는 더 넓은 범위에서 검색
+    const minGapAfterStart = isSamePitchAsNext ? 0.05 : 0.15 // 같은 음정이면 더 가까운 onset도 허용
+    const searchStart = uStart + minGapAfterStart
+    
     if (pitchTrack.onsets) {
       const nextOnsets = pitchTrack.onsets.filter(t => {
         const b = (t - offsetBeats * secondsPerBeat) / secondsPerBeat
-        return b > uStart + 0.15 && b <= endSearchEnd // 실제 시작점(uStart) 이후 onset
+        return b > searchStart && b <= endSearchEnd
       }).sort((a, b) => a - b)
       
       if (nextOnsets.length > 0) {
-        const nextOnset = nextOnsets[0]
+        // 같은 음정이 연속될 때는 예상 종료점에 가장 가까운 onset 선택
+        let nextOnset
+        if (isSamePitchAsNext) {
+          // 예상 종료점에 가장 가까운 onset 찾기
+          const expectedEnd = end
+          nextOnset = nextOnsets.reduce((prev, curr) => {
+            const prevBeat = (prev - offsetBeats * secondsPerBeat) / secondsPerBeat
+            const currBeat = (curr - offsetBeats * secondsPerBeat) / secondsPerBeat
+            const prevDiff = Math.abs(prevBeat - expectedEnd)
+            const currDiff = Math.abs(currBeat - expectedEnd)
+            return currDiff < prevDiff ? curr : prev
+          })
+        } else {
+          // 다른 음정이면 첫 번째 onset 사용
+          nextOnset = nextOnsets[0]
+        }
+        
         const nextOnsetBeat = (nextOnset - offsetBeats * secondsPerBeat) / secondsPerBeat
         uEnd = nextOnsetBeat - 0.05 // onset 직전까지
-        console.log(`  🎵 다음 Onset ${nextOnsetBeat.toFixed(2)}박 → 종료: ${uEnd.toFixed(2)}박 (시작: ${uStart.toFixed(2)}박 이후 탐색)`)
+        console.log(`  🎵 다음 Onset ${nextOnsetBeat.toFixed(2)}박 → 종료: ${uEnd.toFixed(2)}박 (같은음정: ${isSamePitchAsNext})`)
       }
     }
     
-    // 2) onset 없으면 F0 기반 찾기 (±0.3박)
+    // 2) onset 없으면 F0 기반 찾기 (같은 음정일 때는 더 넓은 범위 검색)
     if (uEnd === end) {
-      const endSearchStart = end - 0.3
-      const maxEnd = nextNote ? Math.min(end + 0.3, nextNote.startBeat - 0.05) : end + 0.3
+      const searchRange = isSamePitchAsNext ? 0.5 : 0.3 // 같은 음정이면 더 넓게
+      const endSearchStart = end - searchRange
+      const maxEnd = nextNote ? Math.min(end + searchRange, nextNote.startBeat - 0.05) : end + searchRange
       
+      // 예상 종료점 주변에서 F0가 유지되는 마지막 지점 찾기
+      let lastValidBeat = null
       for (let b = maxEnd; b >= endSearchStart; b -= step) {
         const u = sampleUserAtBeat(b)
         if (u != null && Math.abs(u - n.midi) <= 1.5) {
-          uEnd = b
+          lastValidBeat = b
+        } else if (lastValidBeat !== null) {
+          // F0가 끊긴 지점 = 종료점
+          uEnd = lastValidBeat
           break
         }
+      }
+      
+      if (uEnd === end && lastValidBeat !== null) {
+        uEnd = lastValidBeat
       }
     }
 
