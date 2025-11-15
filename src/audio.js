@@ -87,39 +87,78 @@ export async function analyzePitchTrack(audioBuffer) {
   // 🎯 RMS 배열 추가 (음절 경계 감지용)
   const rmsArray = confidence.map(c => c / 10) // 원래 RMS 값 복원
   
-  // 🎵 Onset Detection: 에너지 변화 기반 음절 경계 감지
-  const onsets = detectOnsets(rmsArray, times)
+  // 🎵 Onset Detection: 에너지 + F0 변화 기반 음절 경계 감지 (개선 버전)
+  const onsets = detectOnsets(rmsArray, times, f0)
   
   return { sampleRate, frameSize, hopSize, times, f0, confidence, rms: rmsArray, onsets }
 }
 
-// 🎵 Onset Detection: 에너지 변화 기반 음절/음표 경계 감지
-function detectOnsets(rms, times) {
+// 🎵 Onset Detection: 에너지 + F0 변화 기반 음절/음표 경계 감지 (개선 버전)
+// 발음이 바뀌는 부분을 정확히 감지하기 위해 RMS와 F0를 모두 사용
+function detectOnsets(rms, times, f0) {
   const onsets = []
+  const minGap = 0.08 // 최소 onset 간격 (0.08초)
   
-  // 1차 미분: 에너지 변화율 계산
+  // 방법 1: RMS 기반 onset detection (에너지 변화)
+  const rmsOnsets = []
   const delta = []
   for (let i = 1; i < rms.length; i++) {
     delta.push(rms[i] - rms[i - 1])
   }
   
-  // 피크 찾기: 에너지가 급격히 증가하는 지점 (새로운 음절 시작)
-  const threshold = 0.003 // RMS 변화 임계값 (0.005→0.003: 더 민감하게)
-  const minGap = 0.08 // 최소 onset 간격 (0.1→0.08초: 더 촘촘하게)
+  const rmsThreshold = 0.003 // RMS 변화 임계값
   
   for (let i = 2; i < delta.length - 2; i++) {
     // 급격한 증가 감지
-    if (delta[i] > threshold && delta[i] > delta[i - 1] && delta[i] > delta[i + 1]) {
+    if (delta[i] > rmsThreshold && delta[i] > delta[i - 1] && delta[i] > delta[i + 1]) {
       const t = times[i]
-      
-      // 너무 가까운 onset 제거
-      if (onsets.length === 0 || t - onsets[onsets.length - 1] > minGap) {
-        onsets.push(t)
+      if (rmsOnsets.length === 0 || t - rmsOnsets[rmsOnsets.length - 1] > minGap) {
+        rmsOnsets.push(t)
       }
     }
   }
   
-  console.log(`[Onset Detection] ${onsets.length}개 onset 감지:`, onsets.slice(0, 10).map(t => t.toFixed(2)))
+  // 방법 2: F0 기반 onset detection (음정 변화 = 발음 변화)
+  // 발음이 바뀌면 음정도 바뀌므로, F0 변화를 감지하면 발음 변화를 감지할 수 있음
+  const f0Onsets = []
+  for (let i = 1; i < f0.length; i++) {
+    const prevF0 = f0[i - 1]
+    const currF0 = f0[i]
+    
+    // 유효한 F0 값이 있고, 음정이 크게 바뀌는 지점 감지
+    if (prevF0 > 0 && currF0 > 0) {
+      const prevMidi = 69 + 12 * Math.log2(prevF0 / 440)
+      const currMidi = 69 + 12 * Math.log2(currF0 / 440)
+      const midiDiff = Math.abs(currMidi - prevMidi)
+      
+      // 반음(0.8 semitone) 이상 변화하면 발음이 바뀐 것으로 간주
+      if (midiDiff >= 0.8) {
+        const t = times[i]
+        if (f0Onsets.length === 0 || t - f0Onsets[f0Onsets.length - 1] > minGap) {
+          f0Onsets.push(t)
+        }
+      }
+    } else if (prevF0 <= 0 && currF0 > 0) {
+      // 무성음에서 유성음으로 전환 (새 음절 시작)
+      const t = times[i]
+      if (f0Onsets.length === 0 || t - f0Onsets[f0Onsets.length - 1] > minGap) {
+        f0Onsets.push(t)
+      }
+    }
+  }
+  
+  // 방법 3: RMS와 F0 onset 병합 (더 정확한 감지)
+  const allOnsets = [...rmsOnsets, ...f0Onsets].sort((a, b) => a - b)
+  
+  // 중복 제거 및 정리
+  for (const t of allOnsets) {
+    if (onsets.length === 0 || t - onsets[onsets.length - 1] > minGap) {
+      onsets.push(t)
+    }
+  }
+  
+  console.log(`[Onset Detection] RMS: ${rmsOnsets.length}개, F0: ${f0Onsets.length}개, 병합: ${onsets.length}개`)
+  console.log(`[Onset Detection] onsets:`, onsets.slice(0, 15).map(t => t.toFixed(2)))
   return onsets
 }
 
