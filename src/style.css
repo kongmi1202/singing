@@ -253,6 +253,7 @@ button:focus-visible {
   margin: 0;
   font-size: 15px;
   font-weight: 500;
+  color: #fff !important;
 }
 
 @keyframes bubblePop {
@@ -283,7 +284,7 @@ button:focus-visible {
 
 #loadingMessage {
   font-size: 16px;
-  color: #fff;
+  color: #fff !important;
   margin: 15px 0;
   min-height: 24px;
   transition: opacity 0.3s ease;

@@ -32,15 +32,15 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
         <div class="box" style="background:#f8f9fa;border-left:4px solid #3a86ff;">
           <h3>📊 그래프 분석 가이드</h3>
           <ul style="font-size:13px;line-height:1.6;">
-            <li><strong>🖱️ 청음 기능 활용</strong>: <strong>그래프의 아무 곳이나 클릭</strong>하면 해당 <strong>마디 전체</strong>의 정답 멜로디와 내 노래가 <strong>동시에 재생</strong>됩니다. Pre-Attack(준비 구간)을 포함하여 자연스럽게 비교할 수 있습니다!</li>
             <li><strong>📏 그래프 X축 (가로축)</strong>: <strong>박 (4/4)</strong> - 시간이 흐르는 순서를 나타냅니다. 왼쪽에서 오른쪽으로 갈수록 노래가 진행됩니다. 각 마디는 4박으로 나뉘어 있어요.</li>
             <li><strong>🎵 그래프 Y축 (세로축)</strong>: <strong>음고</strong> - 노래의 높낮이를 나타냅니다. 위로 갈수록 높은 음, 아래로 갈수록 낮은 음이에요. C4, D4, E4 같은 음표 이름으로 표시됩니다.</li>
-            <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: 정답 악보에서 나와야 하는 <strong>목표 음정</strong>과 <strong>길이</strong>를 보여줍니다. 이 막대처럼 노래하면 정답이에요!</li>
+            <li><strong style="color:#3a86ff;">파란색 막대 (정답)</strong>: 정답 악보에서 나와야 하는 목표 음정과 길이를 보여줍니다. 이 막대처럼 노래하면 정답이에요!</li>
             <li><strong style="color:#ff8c00;">주황색 막대 (사용자)</strong>: 실제로 노래한 음정과 길이를 보여줍니다. 파란색 막대와 비교해서 얼마나 정확하게 불렀는지 확인할 수 있어요.</li>
-            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>: 
-              <br>• <strong>음고 오류</strong>: 정답보다 반음 이상 높거나 낮게 불렀을 때 나타나요. 예: "음고: 반음 정도 높음. 정답 음정에 집중하세요"
-              <br>• <strong>리듬 오류</strong>: 박자를 맞추지 못했을 때 나타나요. 예: "시작: 8분음표 빠르게. 박자에 집중하세요" 또는 "길이: 정답보다 8분음표 길게 불렀어요. 1박으로 불러야 해요"
-              <br>• <strong>💡 연습 전략</strong>: X표에 마우스를 올리면 구체적인 연습 방법이 나와요!</li>
+            <li><strong style="color:#ff4d4f;">빨간색 X표 (오류)</strong>:
+              <br>1. X표에 마우스를 올리면 내가 틀린 부분과 연습 전략이 나와요.
+              <br>2. X표를 클릭하면 해당 마디 전체의 정답 멜로디와 내 노래가 동시에 재생돼요. 내 노래와 정답을 비교해 보세요.
+              <br>• <strong>음고 오류</strong>: 정답보다 반음 이상 높거나 낮게 불렀을 때 나타나요.
+              <br>• <strong>리듬 오류</strong>: 박자를 맞추지 못했을 때 나타나요.</li>
           </ul>
         </div>
         <div class="box">

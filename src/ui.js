@@ -208,23 +208,23 @@ function showLoadingOverlay() {
       
       <!-- 말풍선 메시지 -->
       <div class="speech-bubble">
-        <p id="loadingMessage">와! 멋진 노래네요! 지금부터 꼼꼼하게 분석해 드릴게요 🎶</p>
+        <p id="loadingMessage" style="color:#fff;">와! 멋진 노래네요! 지금부터 꼼꼼하게 분석해 드릴게요 🎶</p>
       </div>
       
       <!-- 재미있는 팁 메시지 (순환) -->
       <div id="loadingTips" style="margin-top:15px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;min-height:60px;transition:opacity 0.5s;">
-        <p style="margin:0;font-size:14px;text-align:center;opacity:0.9;">💡 분석이 진행되는 동안 잠시만 기다려 주세요...</p>
+        <p style="margin:0;font-size:14px;text-align:center;color:#e0e0e0;">💡 분석이 진행되는 동안 잠시만 기다려 주세요...</p>
       </div>
       
-      <h2 style="margin:20px 0 10px 0;font-size:22px;">🎵 AI가 노래를 분석하고 있습니다</h2>
+      <h2 style="margin:20px 0 10px 0;font-size:22px;color:#fff;">🎵 AI가 노래를 분석하고 있습니다</h2>
       
       <div style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;border-left:3px solid #646cff;">
-        <p style="margin:0;font-size:14px;opacity:0.9;">⏱️ <strong>분석에는 1~2분 정도 소요됩니다</strong></p>
-        <p style="margin:5px 0 0 0;font-size:13px;opacity:0.7;">음고, 리듬, 음표별 오류를 세밀하게 분석하는 중입니다. 조금만 기다려 주세요!</p>
+        <p style="margin:0;font-size:14px;color:#e0e0e0;">⏱️ <strong style="color:#fff;">분석에는 1~2분 정도 소요됩니다</strong></p>
+        <p style="margin:5px 0 0 0;font-size:13px;color:#d0d0d0;">음고, 리듬, 음표별 오류를 세밀하게 분석하는 중입니다. 조금만 기다려 주세요!</p>
       </div>
       
       <div style="margin-top:20px;padding:12px;background:rgba(255,77,77,0.15);border-radius:8px;border-left:3px solid #ff4d4d;">
-        <p style="margin:0;font-size:14px;opacity:0.95;font-weight:500;">⚠️ <strong>분석이 완료될 때까지 이 화면을 닫거나 나가지 마십시오.</strong></p>
+        <p style="margin:0;font-size:14px;color:#fff;font-weight:500;">⚠️ <strong>분석이 완료될 때까지 이 화면을 닫거나 나가지 마십시오.</strong></p>
       </div>
     </div>
   `
@@ -264,7 +264,7 @@ function startTipsRotation() {
     
     setTimeout(() => {
       // 텍스트 변경
-      tipsEl.innerHTML = `<p style="margin:0;font-size:14px;text-align:center;opacity:0.9;">${funTips[currentTipIndex]}</p>`
+      tipsEl.innerHTML = `<p style="margin:0;font-size:14px;text-align:center;color:#e0e0e0;">${funTips[currentTipIndex]}</p>`
       
       // 페이드 인
       tipsEl.style.opacity = '1'
