@@ -148,9 +148,13 @@ export async function analyzeAgainstReference(reference, pitchTrack) {
   const correctCount = comparable.filter(x => Math.abs(x.u - x.r) <= pitchToleranceSemis).length
   const pitchScore = comparable.length ? Math.round(100 * correctCount / comparable.length) : 0
 
-  // Rhythm: compare note start beats vs energy changes (simple proxy from pitch availability)
+  // Rhythm: compare note start beats vs energy changes (RMS + F0 기반 onset 사용)
   const refOnsets = reference.notes.map(n => n.startBeat)
-  const userOnsets = detectUserOnsets(userMidiSeries)
+  // 🎯 pitchTrack.onsets 사용: RMS(에너지) + F0 기반으로 계산된 정교한 onset
+  // 이전 detectUserOnsets는 F0만 사용했지만, pitchTrack.onsets는 에너지 정보도 포함하여 더 정확함
+  const userOnsets = pitchTrack.onsets && pitchTrack.onsets.length > 0
+    ? pitchTrack.onsets.map(t => t / secondsPerBeat)  // 초 단위를 beat 단위로 변환
+    : detectUserOnsets(userMidiSeries)  // 폴백: onsets가 없으면 기존 방식 사용
   const rhythmScore = computeRhythmScore(refOnsets, userOnsets)
 
   const totalScore = Math.round((pitchScore * 0.6) + (rhythmScore * 0.4))
