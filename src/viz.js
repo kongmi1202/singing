@@ -1,14 +1,115 @@
 import { Chart, LineController, LineElement, PointElement, BarController, BarElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController } from 'chart.js'
 import { buildYAxisTicksFromReference } from './midi.js'
 import * as Tone from 'tone'
+import OpenAI from 'openai'
 
 Chart.register(LineController, LineElement, PointElement, BarController, BarElement, LinearScale, CategoryScale, Tooltip, Legend, ScatterController)
 
-export function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo }) {
+// OpenAI 클라이언트 초기화
+let openaiClient = null
+function initOpenAI() {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY
+  if (apiKey && apiKey !== 'your_openai_api_key_here') {
+    openaiClient = new OpenAI({
+      apiKey: apiKey,
+      dangerouslyAllowBrowser: true // 브라우저에서 사용하기 위해 필요
+    })
+    return true
+  }
+  return false
+}
+
+// OpenAI를 사용한 연습 전략 생성
+async function generatePracticeStrategy(errorInfo, reference) {
+  if (!openaiClient) {
+    if (!initOpenAI()) {
+      return null // API 키가 없으면 null 반환
+    }
+  }
+
+  try {
+    const { pitchDiff, startDiff, durationDiff, isRhythmStartError, isRhythmDurationError, beat } = errorInfo
+    
+    // 오류 정보를 설명하는 프롬프트 생성
+    let errorDescription = ''
+    const refNote = reference.notes.find(n => Math.abs(n.startBeat - beat) < 0.01)
+    const noteName = refNote ? ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][Math.round(refNote.midi) % 12] + Math.floor(Math.round(refNote.midi) / 12 - 1) : '음표'
+    
+    if (pitchDiff != null && Math.abs(pitchDiff) > 1.0) {
+      const direction = pitchDiff > 0 ? '높게' : '낮게'
+      const semitones = Math.abs(pitchDiff)
+      errorDescription += `음고 오류: ${noteName} 음을 정답보다 ${semitones.toFixed(1)}반음 ${direction} 불렀습니다. `
+    }
+    
+    if (isRhythmStartError) {
+      const direction = startDiff > 0 ? '늦게' : '빠르게'
+      errorDescription += `리듬 시작 오류: ${Math.abs(startDiff).toFixed(2)}박만큼 ${direction} 시작했습니다. `
+    }
+    
+    if (isRhythmDurationError) {
+      const direction = durationDiff > 0 ? '길게' : '짧게'
+      errorDescription += `리듬 길이 오류: 정답보다 ${Math.abs(durationDiff).toFixed(2)}박 ${direction} 불렀습니다. `
+    }
+
+    const response = await openaiClient.chat.completions.create({
+      model: 'gpt-4o-mini', // 더 저렴한 모델 사용
+      messages: [
+        {
+          role: 'system',
+          content: '당신은 음악 교육 전문가입니다. 학생의 노래 연습을 위한 구체적이고 실용적인 조언을 제공합니다.'
+        },
+        {
+          role: 'user',
+          content: `다음 오류가 발생했습니다: ${errorDescription}\n\n이 오류를 개선하기 위한 구체적이고 실용적인 연습 방법을 한 문장으로 제시해주세요. 예: "메트로놈을 60 BPM으로 설정하고, 정답 멜로디를 3번 듣고 나서 정확한 박자에 맞춰 천천히 따라 불러보세요."`
+        }
+      ],
+      max_tokens: 100,
+      temperature: 0.7
+    })
+
+    return response.choices[0].message.content.trim()
+  } catch (error) {
+    console.error('[OpenAI] 연습 전략 생성 실패:', error)
+    return null
+  }
+}
+
+export async function renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo }) {
   // Store globally for playback functions
   globalNoteView = noteView
   globalReference = reference
   console.log('[renderResults] noteView.issues:', noteView?.issues?.length)
+  
+  // OpenAI 연습 전략 캐시 (issue 인덱스를 키로 사용)
+  const practiceStrategyCache = new Map()
+  
+  // 모든 issue에 대해 연습 전략 미리 생성 (비동기)
+  if (noteView?.issues) {
+    const strategyPromises = noteView.issues.map(async (iss, idx) => {
+      try {
+        const strategy = await generatePracticeStrategy({
+          pitchDiff: iss.pitchDiff,
+          startDiff: iss.startDiff,
+          durationDiff: iss.durationDiff,
+          isRhythmStartError: iss.isRhythmStartError,
+          isRhythmDurationError: iss.isRhythmDurationError,
+          beat: iss.beat
+        }, reference)
+        if (strategy) {
+          practiceStrategyCache.set(idx, strategy)
+        }
+      } catch (error) {
+        console.error(`[OpenAI] Issue ${idx} 전략 생성 실패:`, error)
+      }
+    })
+    // 백그라운드에서 실행 (차트는 먼저 렌더링)
+    Promise.all(strategyPromises).then(() => {
+      // 전략이 생성되면 차트 업데이트
+      if (chart) {
+        render()
+      }
+    })
+  }
   
   const results = document.getElementById('results')
   results.innerHTML = `
@@ -119,13 +220,18 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
             // 반음 단위로 환산하여 교육적 코칭 메시지 생성
             if (semitones >= 2.0 * 0.8) {
               parts.push(`⚠️ 음고: 온음(2반음) 정도 ${direction}! 음정을 크게 틀렸어요`)
-              parts.push(`💡 연습: 정답 멜로디를 여러 번 듣고 정확한 음정을 기억한 뒤 따라 불러보세요`)
             } else if (semitones >= 1.0 * 0.8) {
               parts.push(`음고: 반음 정도 ${direction}. 정답 음정에 집중하세요`)
-              parts.push(`💡 연습: 정답 멜로디를 듣고 내 목소리와 비교해보세요`)
             } else {
               parts.push(`음고: 약간 ${direction}`)
-              parts.push(`💡 연습: 조금만 더 정확하게 맞춰보세요`)
+            }
+            
+            // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
+            const aiStrategy = practiceStrategyCache.get(idx)
+            if (aiStrategy) {
+              parts.push(`💡 연습: ${aiStrategy}`)
+            } else {
+              parts.push(`💡 연습: 정답 멜로디를 듣고 정확한 음정을 맞춰보세요`)
             }
           }
         }
@@ -164,16 +270,20 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           // 명령형 코칭 메시지
           if (unit === '4분음표') {
             parts.push(`⚠️ 시작: 4분음표만큼 ${direction}! 박자를 정확히 맞춰야 해요`)
-            parts.push(`💡 연습: 정답 멜로디의 박자를 손으로 치며 따라 불러보세요`)
           } else if (unit === '8분음표') {
             parts.push(`시작: 8분음표 ${direction}. 박자에 집중하세요`)
-            parts.push(`💡 연습: 박자를 정확히 맞추기 위해 정답 멜로디를 여러 번 들어보세요`)
           } else if (unit === '16분음표') {
             parts.push(`시작: 16분음표 ${direction}`)
-            parts.push(`💡 연습: 조금만 더 정확한 박자로 불러보세요`)
           } else {
             parts.push(`시작: 약간 ${direction}`)
-            parts.push(`💡 연습: 박자에 집중해서 다시 불러보세요`)
+          }
+          
+          // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
+          const aiStrategy = practiceStrategyCache.get(idx)
+          if (aiStrategy) {
+            parts.push(`💡 연습: ${aiStrategy}`)
+          } else {
+            parts.push(`💡 연습: 정답 멜로디의 박자를 손으로 치며 따라 불러보세요`)
           }
         }
         
@@ -191,20 +301,28 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           // 명령형 코칭 메시지
           if (unit === '4분음표') {
             parts.push(`⚠️ 길이: 정답보다 4분음표 ${direction} 불렀어요. ${expectedBeatsStr}으로 불러보세요`)
-            parts.push(`💡 연습: 정답 멜로디의 길이를 정확히 듣고 ${expectedBeatsStr}만큼만 불러보세요`)
           } else if (unit === '8분음표') {
             parts.push(`길이: 정답보다 8분음표 ${direction} 불렀어요. ${expectedBeatsStr}으로 불러야 해요`)
-            parts.push(`💡 연습: 정답 멜로디를 듣고 정확한 길이로 불러보세요`)
           } else if (unit === '16분음표') {
             parts.push(`길이: 정답보다 16분음표 ${direction}. 거의 정확해요!`)
-            parts.push(`💡 연습: 조금만 더 정확한 길이로 불러보세요`)
           } else {
             parts.push(`길이: 약간 ${direction}`)
-            parts.push(`💡 연습: 정답 멜로디의 길이에 맞춰 불러보세요`)
+          }
+          
+          // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
+          const aiStrategy = practiceStrategyCache.get(idx)
+          if (aiStrategy) {
+            parts.push(`💡 연습: ${aiStrategy}`)
+          } else {
+            parts.push(`💡 연습: 정답 멜로디의 길이를 정확히 듣고 ${expectedBeatsStr}만큼만 불러보세요`)
           }
         }
         
-        if (parts.length) errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text: parts.join(' | ') })
+        // 말풍선 텍스트 생성 (줄바꿈 처리)
+        if (parts.length) {
+          const text = parts.join('\n') // 줄바꿈으로 구분
+          errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text, idx })
+        }
       }
     })
     
@@ -296,37 +414,56 @@ export function renderResults({ reference, pitchTrack, analysis, noteView, audio
           y: { type:'linear', min: Math.min(...yTicks.map(t=>t.value)) - 1, max: Math.max(...yTicks.map(t=>t.value)) + 3,
                ticks:{ callback:(v)=>{ const t=yTicks.find(t=>t.value===v); return t? t.label : '' }, stepSize:1 }, title:{display:true,text:'음고'} }
         },
-        plugins: { tooltip:{ enabled:true, mode:'nearest', intersect:true, callbacks:{
-          title:(items)=>{ 
-            const x = items[0].parsed?.x ?? items[0].raw?.x
-            if (x==null) return ''
-            const m=Math.floor(x/4)+1; const bi=Math.floor(x%4)+1
-            return `마디 ${m}, 박 ${bi}`
-          },
-          label:(ctx)=>{
-            if (ctx.dataset.label==='사용자'){
-              const x0 = ctx.parsed.x
-              const y0 = ctx.parsed.y
-              if (x0==null || y0==null) return '사용자'
-              const note = reference.notes.find(n => x0>=n.startBeat-0.5 && x0<n.startBeat+n.durationBeats+0.5)
-              if (!note) return `사용자: ${midiToNaturalName(Math.round(y0))}`
-              const pitchDiff = y0 - note.midi
-              const cents = pitchDiff * 100
-              // 🎯 음고 평가 기준: ±75 Cent 이내면 양호, 초과하면 오류
-              const pitchDesc = cents > 75 ? `${Math.abs(cents).toFixed(0)}센트 높음 ⚠️` 
-                              : cents < -75 ? `${Math.abs(cents).toFixed(0)}센트 낮음 ⚠️` 
-                              : '음정 양호 ✓'
-              return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc}`
+        plugins: { 
+          tooltip:{ 
+            enabled:true, 
+            mode:'nearest', 
+            intersect:true,
+            // 🎯 말풍선 크기 조정
+            maxWidth: 300, // 최대 너비 제한
+            padding: 12, // 내부 여백
+            titleFont: { size: 14, weight: 'bold' },
+            bodyFont: { size: 13 },
+            titleSpacing: 6,
+            bodySpacing: 4,
+            // 말풍선이 그래프 영역 내에 표시되도록 위치 조정
+            position: 'nearest',
+            callbacks:{
+              title:(items)=>{ 
+                const x = items[0].parsed?.x ?? items[0].raw?.x
+                if (x==null) return ''
+                const m=Math.floor(x/4)+1; const bi=Math.floor(x%4)+1
+                return `마디 ${m}, 박 ${bi}`
+              },
+              label:(ctx)=>{ 
+                if (ctx.dataset.label==='사용자'){
+                  const x0 = ctx.parsed.x
+                  const y0 = ctx.parsed.y
+                  if (x0==null || y0==null) return '사용자'
+                  const note = reference.notes.find(n => x0>=n.startBeat-0.5 && x0<n.startBeat+n.durationBeats+0.5)
+                  if (!note) return `사용자: ${midiToNaturalName(Math.round(y0))}`
+                  const pitchDiff = y0 - note.midi
+                  const cents = pitchDiff * 100
+                  // 🎯 음고 평가 기준: ±75 Cent 이내면 양호, 초과하면 오류
+                  const pitchDesc = cents > 75 ? `${Math.abs(cents).toFixed(0)}센트 높음 ⚠️` 
+                                  : cents < -75 ? `${Math.abs(cents).toFixed(0)}센트 낮음 ⚠️` 
+                                  : '음정 양호 ✓'
+                  return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc}`
+                }
+                if (ctx.dataset.label==='오류 (X표시)') {
+                  const pt = crosses[ctx.dataIndex]
+                  if (!pt?.meta) return '오류'
+                  const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
+                  if (!lbl) return '오류'
+                  // 줄바꿈 처리된 텍스트를 배열로 변환하여 여러 줄로 표시
+                  return lbl.text.split('\n')
+                }
+                return `${ctx.dataset.label}: ${midiToNaturalName(Math.round(ctx.parsed.y))}`
+              }
             }
-            if (ctx.dataset.label==='오류 (X표시)') {
-              const pt = crosses[ctx.dataIndex]
-              if (!pt?.meta) return '오류'
-              const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
-              return lbl?.text || '오류'
-            }
-            return `${ctx.dataset.label}: ${midiToNaturalName(Math.round(ctx.parsed.y))}`
-          }
-        } }, legend:{ position:'top' } },
+          }, 
+          legend:{ position:'top' } 
+        },
         onClick: async (evt, elements) => {
           console.log('[CLICK] elements:', elements)
           const crossDatasetIdx = chart.data.datasets.length - 1

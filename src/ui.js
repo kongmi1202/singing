@@ -161,7 +161,7 @@ function showAnalysisScreen() {
       const noteView = buildNoteComparisons(reference, pitchTrack)
       
       updateLoadingMessage('✨ 결과를 예쁘게 정리하고 있어요... 조금만 더! 🎉')
-      renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo })
+      await renderResults({ reference, pitchTrack, analysis, noteView, audioUrl, studentInfo })
       
       // 🎉 최종 완료 단계
       updateLoadingMessage('🎊 완료되었습니다! 최고예요! 🎊')
