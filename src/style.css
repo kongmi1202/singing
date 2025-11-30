@@ -69,13 +69,19 @@ h1 {
 .results-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; min-height: 420px; }
 .results-grid canvas { width: 100%; height: 420px; }
 /* Ensure a hard, reliable canvas height regardless of Chart.js sizing quirks */
-.chart-wrap{ height:420px; position: relative; }
+.chart-wrap{ height:420px; position: relative; overflow: visible; }
 .chart-wrap > canvas{ 
   height:100% !important; 
   width:100% !important; 
   display:block; 
   cursor: pointer !important; /* 🎵 그래프 전체 영역 클릭 가능 표시 */
   transition: opacity 0.1s ease;
+}
+/* Chart.js tooltip이 차트 영역 내에 표시되도록 제어 */
+.chart-wrap .chartjs-tooltip {
+  max-width: 280px !important;
+  pointer-events: none;
+  z-index: 1000;
 }
 .side .box { background: rgba(255,255,255,0.06); padding: 12px; border-radius: 8px; margin-bottom: 12px; }
 

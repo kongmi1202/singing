@@ -210,33 +210,6 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
         const sixteenthNoteDuration = 60000 / (tempo * 4)
         const tolMs = sixteenthNoteDuration * 1.3 // 16분음표 × 1.3배
         
-        // 🎵 음고 오류 체크 - 음악 용어 기반 피드백
-        if (iss.pitchDiff != null){
-          const cents = Math.abs(iss.pitchDiff) * 100
-          if (cents > 100) { // 100 Cent 이상은 음고 오류
-            const semitones = Math.abs(iss.pitchDiff)
-            const direction = iss.pitchDiff > 0 ? '높음' : '낮음'
-            
-            // 반음 단위로 환산하여 교육적 코칭 메시지 생성
-            if (semitones >= 2.0 * 0.8) {
-              parts.push(`⚠️ 음고: 온음(2반음) 정도 ${direction}! 음정을 크게 틀렸어요`)
-            } else if (semitones >= 1.0 * 0.8) {
-              parts.push(`음고: 반음 정도 ${direction}. 정답 음정에 집중하세요`)
-            } else {
-              parts.push(`음고: 약간 ${direction}`)
-            }
-            
-            // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
-            const aiStrategy = practiceStrategyCache.get(idx)
-            if (aiStrategy) {
-              parts.push(`💡 연습: ${aiStrategy}`)
-            } else {
-              parts.push(`💡 연습: 정답 멜로디를 듣고 정확한 음정을 맞춰보세요`)
-            }
-          }
-        }
-        
-        // 🎵 리듬 오류 체크 (시작점 + 길이) - 음악 용어 기반 피드백
         // 오차를 음표 단위로 환산하는 헬퍼 함수
         const convertToMusicalUnit = (errorBeats) => {
           const absError = Math.abs(errorBeats)
@@ -262,6 +235,25 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
         const refNote = reference.notes.find(n => Math.abs(n.startBeat - iss.beat) < 0.01)
         const expectedBeats = refNote ? refNote.durationBeats : 1.0
         
+        // 🎵 음고 오류 체크 - 음악 용어 기반 피드백
+        if (iss.pitchDiff != null){
+          const cents = Math.abs(iss.pitchDiff) * 100
+          if (cents > 100) { // 100 Cent 이상은 음고 오류
+            const semitones = Math.abs(iss.pitchDiff)
+            const direction = iss.pitchDiff > 0 ? '높음' : '낮음'
+            
+            // 반음 단위로 환산하여 교육적 코칭 메시지 생성
+            if (semitones >= 2.0 * 0.8) {
+              parts.push(`⚠️ 음고: 온음(2반음) 정도 ${direction}! 음정을 크게 틀렸어요`)
+            } else if (semitones >= 1.0 * 0.8) {
+              parts.push(`음고: 반음 정도 ${direction}. 정답 음정에 집중하세요`)
+            } else {
+              parts.push(`음고: 약간 ${direction}`)
+            }
+          }
+        }
+        
+        // 🎵 리듬 오류 체크 (시작점 + 길이) - 음악 용어 기반 피드백
         // 시작점 오류
         if (iss.isRhythmStartError) {
           const unit = convertToMusicalUnit(iss.startDiff)
@@ -276,14 +268,6 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
             parts.push(`시작: 16분음표 ${direction}`)
           } else {
             parts.push(`시작: 약간 ${direction}`)
-          }
-          
-          // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
-          const aiStrategy = practiceStrategyCache.get(idx)
-          if (aiStrategy) {
-            parts.push(`💡 연습: ${aiStrategy}`)
-          } else {
-            parts.push(`💡 연습: 정답 멜로디의 박자를 손으로 치며 따라 불러보세요`)
           }
         }
         
@@ -308,18 +292,31 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
           } else {
             parts.push(`길이: 약간 ${direction}`)
           }
-          
-          // OpenAI로 생성한 연습 전략이 있으면 사용, 없으면 기본 메시지
+        }
+        
+        // 🎯 연습 전략은 오류 메시지 수집 후 한 번만 추가
+        if (parts.length) {
           const aiStrategy = practiceStrategyCache.get(idx)
           if (aiStrategy) {
             parts.push(`💡 연습: ${aiStrategy}`)
           } else {
-            parts.push(`💡 연습: 정답 멜로디의 길이를 정확히 듣고 ${expectedBeatsStr}만큼만 불러보세요`)
+            // 기본 연습 전략: 오류 유형에 따라 적절한 메시지 선택
+            if (iss.pitchDiff != null && Math.abs(iss.pitchDiff) * 100 > 100) {
+              parts.push(`💡 연습: 정답 멜로디를 듣고 정확한 음정을 맞춰보세요`)
+            } else if (iss.isRhythmStartError || iss.isRhythmDurationError) {
+              const expectedBeatsStr = expectedBeats === 1.0 ? '1박' 
+                                     : expectedBeats === 0.5 ? '8분음표(0.5박)'
+                                     : expectedBeats === 2.0 ? '2박'
+                                     : `${expectedBeats.toFixed(1)}박`
+              if (iss.isRhythmDurationError) {
+                parts.push(`💡 연습: 정답 멜로디의 길이를 정확히 듣고 ${expectedBeatsStr}만큼만 불러보세요`)
+              } else {
+                parts.push(`💡 연습: 정답 멜로디의 박자를 손으로 치며 따라 불러보세요`)
+              }
+            }
           }
-        }
-        
-        // 말풍선 텍스트 생성 (줄바꿈 처리)
-        if (parts.length) {
+          
+          // 말풍선 텍스트 생성 (줄바꿈 처리)
           const text = parts.join('\n') // 줄바꿈으로 구분
           errorLabels.push({ x: iss.beat, y: iss.midi + 0.8, text, idx })
         }
@@ -342,8 +339,8 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
     globalChart = chart = new Chart(ctx, {
       type: 'line',
       data: { datasets: [
-        { label:'정답', data: linesRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
-        { label:'사용자', data: linesUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] } },
+        { label:'정답', data: linesRef, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#3a86ff', backgroundColor:'rgba(58,134,255,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] }, tooltip: { enabled: false } },
+        { label:'사용자', data: linesUser, parsing:{xAxisKey:'x',yAxisKey:'y'}, borderColor:'#ff8c00', backgroundColor:'rgba(255,140,0,0.6)', borderWidth:5, pointRadius:0, spanGaps:false, segment:{ borderDash: [] }, tooltip: { enabled: false } },
         { label:'오류 (X표시)', data: crosses, parsing:{xAxisKey:'x',yAxisKey:'y'}, type:'scatter', pointStyle:'crossRot', pointBackgroundColor:'#ff4d4f', pointBorderColor:'#ff4d4f', pointRadius:10, pointBorderWidth:2, hitRadius:15, hoverRadius:12, showLine:false }
       ]},
       plugins: [{
@@ -418,47 +415,50 @@ export async function renderResults({ reference, pitchTrack, analysis, noteView,
           tooltip:{ 
             enabled:true, 
             mode:'nearest', 
-            intersect:true,
+            intersect:true, // X표에 정확히 마우스를 올려야 tooltip이 표시되도록
             // 🎯 말풍선 크기 조정
-            maxWidth: 300, // 최대 너비 제한
-            padding: 12, // 내부 여백
+            maxWidth: 280, // 최대 너비 제한 (그래프 내부에 맞게 조정)
+            padding: 10, // 내부 여백
             titleFont: { size: 14, weight: 'bold' },
-            bodyFont: { size: 13 },
+            bodyFont: { size: 12 }, // 폰트 크기 약간 축소
             titleSpacing: 6,
             bodySpacing: 4,
             // 말풍선이 그래프 영역 내에 표시되도록 위치 조정
             position: 'nearest',
+            // X표 데이터셋만 tooltip 표시
+            filter: function(tooltipItem) {
+              return tooltipItem.dataset.label === '오류 (X표시)'
+            },
             callbacks:{
               title:(items)=>{ 
+                // X표만 표시되므로 첫 번째 항목이 X표임
                 const x = items[0].parsed?.x ?? items[0].raw?.x
                 if (x==null) return ''
                 const m=Math.floor(x/4)+1; const bi=Math.floor(x%4)+1
                 return `마디 ${m}, 박 ${bi}`
               },
               label:(ctx)=>{ 
-                if (ctx.dataset.label==='사용자'){
-                  const x0 = ctx.parsed.x
-                  const y0 = ctx.parsed.y
-                  if (x0==null || y0==null) return '사용자'
-                  const note = reference.notes.find(n => x0>=n.startBeat-0.5 && x0<n.startBeat+n.durationBeats+0.5)
-                  if (!note) return `사용자: ${midiToNaturalName(Math.round(y0))}`
-                  const pitchDiff = y0 - note.midi
-                  const cents = pitchDiff * 100
-                  // 🎯 음고 평가 기준: ±75 Cent 이내면 양호, 초과하면 오류
-                  const pitchDesc = cents > 75 ? `${Math.abs(cents).toFixed(0)}센트 높음 ⚠️` 
-                                  : cents < -75 ? `${Math.abs(cents).toFixed(0)}센트 낮음 ⚠️` 
-                                  : '음정 양호 ✓'
-                  return `사용자: ${midiToNaturalName(Math.round(y0))} | ${pitchDesc}`
-                }
+                // 이 callback은 X표에 대해서만 호출됨 (filter로 필터링됨)
                 if (ctx.dataset.label==='오류 (X표시)') {
-                  const pt = crosses[ctx.dataIndex]
-                  if (!pt?.meta) return '오류'
-                  const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
-                  if (!lbl) return '오류'
-                  // 줄바꿈 처리된 텍스트를 배열로 변환하여 여러 줄로 표시
-                  return lbl.text.split('\n')
+                  try {
+                    const pt = crosses[ctx.dataIndex]
+                    if (!pt?.meta) {
+                      console.warn('[tooltip] No meta for cross at index', ctx.dataIndex)
+                      return ['오류']
+                    }
+                    const lbl = errorLabels.find(e => Math.abs(e.x - pt.x) < 0.01 && Math.abs(e.y - pt.y - 0.8) < 0.1)
+                    if (!lbl) {
+                      console.warn('[tooltip] No label found for cross at', pt.x, pt.y)
+                      return ['오류']
+                    }
+                    // 줄바꿈 처리된 텍스트를 배열로 변환하여 여러 줄로 표시
+                    return lbl.text.split('\n')
+                  } catch (error) {
+                    console.error('[tooltip] Error in label callback:', error)
+                    return ['오류']
+                  }
                 }
-                return `${ctx.dataset.label}: ${midiToNaturalName(Math.round(ctx.parsed.y))}`
+                return ''
               }
             }
           }, 
