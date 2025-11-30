@@ -82,6 +82,14 @@ function showAnalysisScreen() {
       </section>
       <section class="panel">
         <label for="audioInput">노래 업로드 (wav/mp3)</label>
+        <div style="margin:8px 0;font-size:13px;opacity:0.7;line-height:1.6;">
+          <p id="uploadDescription" style="margin:0 0 4px 0;">
+            💡 선택한 악곡과 빠르기, 조성이 일치하도록 노래 불러주세요.
+          </p>
+          <p style="margin:0;">
+            💡 조용한 환경에서 오직 당신의 목소리만 녹음된 노래 파일을 업로드해주세요.
+          </p>
+        </div>
         <input id="audioInput" type="file" accept="audio/*" />
         <audio id="player" controls style="display:none;margin-top:12px;"></audio>
       </section>
@@ -103,8 +111,27 @@ function showAnalysisScreen() {
   })
   selectedSongId = songs[0]?.id || null
 
+  // 설명 업데이트 함수
+  function updateUploadDescription() {
+    const descriptionEl = document.getElementById('uploadDescription')
+    if (!descriptionEl) return
+    
+    const selectedSong = songs.find(s => s.id === selectedSongId)
+    if (selectedSong) {
+      const tempo = selectedSong.tempoBpm || 120
+      const key = selectedSong.key || 'C'
+      descriptionEl.textContent = `💡 선택한 악곡과 빠르기(${tempo} BPM), 조성(${key} 메이저)이 일치하도록 노래 불러주세요.`
+    } else {
+      descriptionEl.textContent = `💡 선택한 악곡과 빠르기, 조성이 일치하도록 노래 불러주세요.`
+    }
+  }
+
+  // 초기 설명 업데이트
+  updateUploadDescription()
+
   select.addEventListener('change', (e) => {
     selectedSongId = e.target.value
+    updateUploadDescription()
     updateAnalyzeEnabled()
   })
 
